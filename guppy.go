@@ -4,6 +4,8 @@ import (
 	"fmt"
 
 	"github.com/phil-mansfield/guppy/lib"
+	"github.com/phil-mansfield/guppy/lib/thread"
+	"github.com/phil-mansfield/guppy/lib/error"
 	read "github.com/phil-mansfield/guppy/go"
 )
 
@@ -29,7 +31,7 @@ func main() {
 	case "confirm":
 		Confirm(args)
 	default:
-		lib.ExternalErrorf(
+		error.External(
 			"You attempted to run guppy in the mode '%s', but the only valid " +
 				"modes are 'help', 'check', 'convert', and 'confirm'.", mode,
 		)
@@ -50,7 +52,7 @@ func Check(args *lib.Args) {
 func Convert(args *lib.Args) {
 	lib.Check(lib.GuppyMode, args)
 	
-	lib.SetThreads(args.Threads)
+	thread.Set(args.Threads)
 
 	for snap := 0; snap < args.Snaps; snap++ {
 		// Split particles into guppy data cubes.
@@ -73,7 +75,7 @@ func Convert(args *lib.Args) {
 func Confirm(args *lib.Args) {
 	lib.Check(lib.GuppyMode, args)
 
-	lib.SetThreads(args.Threads)
+	thread.Set(args.Threads)
 
 	for snap := 0; snap < args.Snaps; snap++ {
 		// This is the one weak link in the "confirm" chain. If CollectParticles

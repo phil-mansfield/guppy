@@ -1,14 +1,18 @@
-package lib
-
-/* thread.go contains functions useful for multi-threading. */
+/* package thread contains functions useful for multi-threading. */
+package thread
 
 import (
 	"runtime"
+
+	"github.com/phil-mansfield/guppy/lib/error"
 )
 
-func SetThreads(n int) {
+// Set sets the number of threads used by the process. Will crash if more
+// threads are requested than CPUs on the node. Setting n = -1 will use the
+// maximum number of threads possible.
+func Set(n int) {
 	if n > runtime.NumCPU() {
-		ExternalErrorf("%d threads requested, but your system only has %d cores per node. If you want guppy to use the maximum number of threads per node, set Threads=-1.")
+		error.External("%d threads requested, but your system only has %d cores per node. If you want guppy to use the maximum number of threads per node, set Threads=-1.")
 	}
 
 	runtime.GOMAXPROCS(n)
@@ -106,7 +110,7 @@ func SplitArray(
 	case weightedContiguous:
 		splitArrayWeightedContiguous(jobs, workers, config[0].weights, work)
 	default:
-		InternalErrorf("Unknown strategy, %d.", strat)
+		error.Internal("Unknown SplitArray strategy, %d.", strat)
 	}
 }
 
