@@ -116,6 +116,9 @@ func tokeniseSequenceFormat(format string) ([]string, error) {
 	return tok, nil
 }
 
+// addsSubsSequenceFormat takes a tokenised string and converts it to
+// and adds array, representing all the tokens that should be inserted to the
+// sequence and subs, all the tokens that should be removed from it.
 func addsSubsSequenceFormat(tok []string) (adds, subs []string, err error) {
 	if len(tok) == 0 {
 		return nil, nil, fmt.Errorf("Format string is empty")
@@ -171,7 +174,7 @@ func addsSubsSequenceFormat(tok []string) (adds, subs []string, err error) {
 
 // isSequenceFormatToken returns a nil error is tok is a valid token for
 // a sequence format and an error describing the problem otherwise. The error
-// message assumes it is printed after a trailing "beacause"
+// message assumes it is printed after a trailing "because".
 func isSequenceFormatToken(tok string) error {
 	if len(tok) == 0 {
 		return fmt.Errorf("the format string is empty.")
@@ -236,34 +239,25 @@ func parseSequenceFormatToken(tok string) []int {
 	return nil
 }
 
-// ExpandSnapshotFormat expands the format string specifying the snapshots
-// Guppy will analyse. This format string takes the same form as the general
-// ExpandSequeneceFormat format string.
-func ExpandSnapshotFormat(format string) []int {
-	snaps, err := ExpandSequenceFormat(format)
-	if err != nil {
-		g_error.External("The Snapshots format string, '%s' is not valid. %s",
-			format, err.Error(),
-		)
-	}
+// ExpandFormatString expands a format string into n unique versions. Named
+// variables are given the values specified in vals. Sequence variables are
+// expanded individually, meaning that n = \prod n_i, where n_i is the length
+// of each sequence.
+func ExpandFormatString(format string, vals map[string]int) ([]string, error) {
+	starts, ends, err := startsEndsFormatString(format)
+	if err != nil { return nil, err }
+	_, _ = starts, ends
 
-	return snaps
+	return nil, nil
 }
 
-func ExpandFileFormat(format string, snapshot, output int) {
-	starts, ends := fileFormatStartsEnds(format)
-	comp := NewFileFormatComponents(format, starts, ends)
-	_ = comp
-	panic("NYI")
-}
 
-// fileFormatStartsEnds returns the indices of the beginning and end of each
-// format variable.
-func fileFormatStartsEnds(format string) (starts, ends []int) {
+// startsEndsFormatString returns the indices of the beginning and end of each
+// format variable. The end index is exclusive, making it useful for slicing
+// the string.
+func startsEndsFormatString(format string) (starts, ends []int, err error) {
 	starts, ends = []int{ }, []int{ }
 	nestedLevel := 0
-
-	ending := "Make sure variables in file formats are enclosed in matching { ... } pairs."
 	
 	for i := range format {
 		if format[i] == '{' {
@@ -276,11 +270,11 @@ func fileFormatStartsEnds(format string) (starts, ends []int) {
 
 		if nestedLevel > 1 {
 			end := len(starts) - 1
-			g_error.External("The file format '%s' has nested '{' characters, making it invalid. These '{'s are at indices %d and %d. " + ending,
-				format, starts[end], starts[end - 1])
+			return nil, nil, fmt.Errorf("The format string '%s' has nested '{' characters, making it invalid. These two '{'s are characters %d and %d.",
+				format, starts[end-1] + 1, starts[end] + 1)
 		} else if nestedLevel < 0 {
 			end := len(ends) - 1
-			g_error.External("The file format '%s' has a '}' that doesn't come after a '{' character, making it invalid. This '}' is at index %d. " + ending,
+			return nil, nil, fmt.Errorf("The format string '%s' has a '}' that doesn't come after a '{' character, making it invalid. This '}' is character %d.",
 				format, ends[end],
 			)
 		}
@@ -288,41 +282,9 @@ func fileFormatStartsEnds(format string) (starts, ends []int) {
 
 	if len(ends) != len(starts) {
 		end := len(starts) - 1
-		g_error.External("The file format '%s' has a '{' without a matching '}', making it invalid. This '{' is at index %d. " + ending, format, starts[end])
+		return nil, nil, fmt.Errorf("The file format '%s' has a '{' without a matching '}', making it invalid. This '{' is character %d. ",
+			format, starts[end] + 1)
 	}
 
-	return starts, ends
-}
-
-type FileFormatComponents struct {
-	Separators []string
-	Vars []string
-	FormatVerbs map[string]string
-	Arguments map[string]string
-}
-
-func NewFileFormatComponents(
-	format string, starts, ends []int,
-) *FileFormatComponents {
-	comp := &FileFormatComponents{ }
-
-	sepStart := 0
-	for i := range starts {
-		comp.Separators = append(comp.Separators, format[sepStart: starts[i]])
-
-		v := format[starts[i]+1: ends[i]-1]
-
-		//base := fmt.Sprintf("The file format '%s' has an invalid variable, '%s'. Variables should contain a formatting 'verb' (e.g. '%%d', '%%03d', etc.), a comma, and an argument giving the values that variable takes on (e.g. '0..511', 'snapshot', etc.)", format, )
-
-		_ = v //base
-		/*
-		tok := strings.Split(v, ",")
-		if len(tok) != 2 {
-			g_error.External(base + )
-		}
-*/
-	}
-
-	panic("NYI")
-	return comp
+	return starts, ends, nil
 }

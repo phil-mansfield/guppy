@@ -186,6 +186,47 @@ func TestExpandSeqeunceFormat(t *testing.T) {
 	}
 }
 
+func TestStartsEndsFormatString(t *testing.T) {
+	tests := []struct{
+		format string
+		starts, ends []int
+		valid bool
+	} {
+		{"aaaaaa", []int{}, []int{}, true},
+		{"a{bb}a", []int{1}, []int{5}, true},
+		{"{bb}aa", []int{0}, []int{4}, true},
+		{"aa{bb}", []int{2}, []int{6}, true},
+		{"{}", []int{0}, []int{2}, true},
+		{"{}{bb}{}{}", []int{0, 2, 6, 8}, []int{2, 6, 8, 10}, true},
+		{"{}{bb}a{}{}", []int{0, 2, 7, 9}, []int{2, 6, 9, 11}, true},
+		{"{", nil, nil, false},
+		{"}", nil, nil, false},
+		{"{{", nil, nil, false},
+		{"{{}}", nil, nil, false},
+		{"{}{", nil, nil, false},
+		{"{}}", nil, nil, false},
+		{"}{}", nil, nil, false},
+		{"{{}", nil, nil, false},
+	}
+
+	for i := range tests {
+		starts, ends, err := startsEndsFormatString(tests[i].format)
+		if tests[i].valid && err != nil {
+			t.Errorf("%d) Expected '%s' could be processed, but got error '%s'",
+				i, tests[i].format, err.Error())
+		} else if !tests[i].valid && err == nil {
+			t.Errorf("%d) Expected '%s' should fail, but got no error.",
+				i, tests[i].format)
+		} else if !intsEq(starts, tests[i].starts) ||
+			!intsEq(ends, tests[i].ends) {
+			t.Errorf("%d) Expected '%s' should have starts = %d, ends = %d, but got starts = %d, ends = %d",
+				i, tests[i].format, tests[i].starts,
+				tests[i].ends, starts, ends,
+			)
+		}
+	}
+}
+
 //////////////////////
 // Helper functions //
 //////////////////////
