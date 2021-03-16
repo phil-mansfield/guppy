@@ -261,6 +261,75 @@ func TestSplitFormatString(t *testing.T) {
 	}
 }
 
+func TestFixVerb(t *testing.T) {
+	tests := []struct {
+		in, out string
+		valid bool
+	} {
+		{"%d", "%d", true},
+		{"%c", "%c", true},
+		{"%b", "%b", true},
+		{"%o", "%o", true},
+		{"%O", "%O", true},
+		{"%q", "%q", true},
+		{"%x", "%x", true},
+		{"%X", "%X", true},
+		{"%U", "%U", true},
+
+		{"%i", "%d", true},
+		{"%ld", "%d", true},
+		{"%li", "%d", true},
+		{"%hd", "%d", true},
+		{"%hi", "%d", true},
+
+		{"%+d", "%+d", true},
+		{"%0d", "%0d", true},
+		{"%03d", "%03d", true},
+		{"%0100d", "%0100d", true},
+		{"% 150d", "% 150d", true},
+		{"%+031d", "%+031d", true},
+		{"%-031d", "%-031d", true},
+		{"%#031d", "%#031d", true},
+		{"%+#031d", "%+#031d", true},
+		{"%+#d", "%+#d", true},
+		{"%#d", "%#d", true},
+		{"%100d", "%100d", true},
+		
+		{"%+.41hi", "%+041d", true},
+		{"%+#031li", "%+#031d", true},
+
+		// I'm not going to be able to enumerate every incorrect format string
+		{"", "", false},
+		{"d", "", false},
+		{"i", "", false},
+		{"%f", "", false},
+		{"%???d", "", false},
+		{"%<d", "", false},
+		{"%>d", "", false},
+		{"%=d", "", false},
+		{"%^d", "", false},
+		{"%_d", "", false},
+		{"%,d", "", false},
+		{"%03+d", "", false},
+		{"%0#d", "", false},
+		{"%#+d", "", false},
+	}
+
+	for i := range tests {
+		out, err := fixVerb(tests[i].in)
+		if err != nil && tests[i].valid {
+			t.Errorf("%d) Expected '%s' could be processed, but got error %s",
+				i, tests[i].in, err.Error())
+		} else if err == nil && !tests[i].valid {
+			t.Errorf("%d) Expected '%s' would fail, but got no error.",
+				i, tests[i].in)
+		} else if out != tests[i].out {
+			t.Errorf("%d) Expected '%s' would become '%s', but got '%s'.",
+				i, tests[i].in, tests[i].out, out)
+		}
+	}
+}
+
 //////////////////////
 // Helper functions //
 //////////////////////

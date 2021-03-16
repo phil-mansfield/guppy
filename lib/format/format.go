@@ -244,19 +244,23 @@ func parseSequenceFormatToken(tok string) []int {
 // expanded individually, meaning that n = \prod n_i, where n_i is the length
 // of each sequence.
 func ExpandFormatString(format string, vals map[string]int) ([]string, error) {
+	// Toeknize components of the format string:
 	starts, ends, err := startsEndsFormatString(format)
 	if err != nil { return nil, err }
 	text, vars := splitFormatString(format, starts, ends)
 
-
-	_, _ = text, vars
-	/*
+	// Parse each variable
+	verb, rule := make([]string, len(vars)), make([]string, len(vars))
+	isSeq := make([]bool, len(vars))
 	for i := range vars {
-		if err := isFormatStringVar(vars[i]); err != nil {
-			return nil, 
+		verb[i], rule[i], isSeq[i], err = splitFormatStringVar(vars[i])
+		if err != nil {
+			return nil, fmt.Errorf("Could not parse variable %d, {%s}, because %s",
+				i+1, vars[i], err.Error())
 		}
 	}
-*/
+
+	_ = text
 	
 	return nil, nil
 }
@@ -329,4 +333,88 @@ func splitFormatString(
 	}
 
 	return text, vars
+}
+
+func splitFormatStringVar(v string) (verb, rule string, isSeq bool, err error) {
+	tok := strings.Split(v, ",")
+	if len(tok) == 1 {
+		return "", "", false, fmt.Errorf("it does not have a comma.")
+	} else if len(tok) > 2 {
+		return "", "", false, fmt.Errorf("it has more than one comma.")
+	}
+
+	verb, rule = tok[0], tok[1]
+	verb, err = fixVerb(v)
+	if err != nil { return "", "", false, err }
+
+	return verb, rule, false, nil
+}
+
+// fixVerb fixes printf verbs formatted after Python and C rules and throws an
+// error if it's not a recognized command. This gets, ah, a little complicated.
+func fixVerb(v string) (string, error) {
+	err := fmt.Errorf("'%s' is not a valid printf() command.", v)
+	
+	if len(v) == 0 {
+		return "", err
+	} else if v[0] != '%' {
+		return "", err
+	}
+
+	// In C, i and d are synonyms.
+	v = strings.ReplaceAll(v, "i", "d") 
+	// In C, l is required for long ints
+	v = strings.ReplaceAll(v, "l", "") 
+	// In C, h is required for short ints
+	v = strings.ReplaceAll(v, "h", "")
+	// In C, both . and 0 allow for zero-padding
+	v = strings.ReplaceAll(v, ".", "0")
+	// In Python there are obscure characters that no-one uses. Throw an error
+	// if someone tries. In principle these aren't hard to implement, but I bet
+	// no one will ever need them.
+	if strings.ContainsAny(v, "<>=^") {
+		return "", fmt.Errorf("'%s' contains obscure Python-2 format characters that Guppy hasn't implemented. Please submit an issue requesting this feature.", v)
+	} else if strings.ContainsAny(v, "_,") {
+		return "", fmt.Errorf("'%s' contains obscure Python-3 format characters that Guppy hasn't implemented. Please submit an issue requesting this feature.", v)
+	}
+		
+	// Only ints are supported for now.
+	switch v[len(v) - 1] {
+	case 'b', 'c', 'd', 'o', 'O', 'q', 'x', 'X', 'U':
+	default: return "", err
+	}
+
+	// Try our best to figure out if the modifier is legal.
+	mod := v[1:len(v) - 1]
+	prevFlag := "none"
+ModLoop:
+	for i, c := range mod {
+		switch c {
+		case '+', '-':
+			if prevFlag != "none" {
+				return "", err
+			}
+			prevFlag = "sign"
+		case '#':
+			if prevFlag != "none" && prevFlag != "sign" {
+				return "", err
+			}
+			prevFlag = "alt"
+		case '0', ' ':
+			if prevFlag != "none" && prevFlag != "sign" && prevFlag != "alt" {
+				return "", err
+			}
+			prevFlag = "padding"
+		default:
+			_, atoiErr:= strconv.Atoi(mod[i:len(mod)])
+			if atoiErr != nil {
+				return "", err
+			}
+			prevFlag = "paddingSize"
+
+			break ModLoop
+		}
+	}
+	
+	return v, nil
 }
