@@ -227,6 +227,40 @@ func TestStartsEndsFormatString(t *testing.T) {
 	}
 }
 
+func TestSplitFormatString(t *testing.T) {
+	tests := []struct {
+		format string
+		starts, ends []int
+		text, vars []string
+	} {
+		{"", []int{}, []int{}, []string{""}, []string{}},
+		{"aaaaa", []int{}, []int{},
+			[]string{"aaaaa"}, []string{}},
+		{"a{b}a", []int{1}, []int{4},
+			[]string{"a", "a"}, []string{"b"}},
+		{"{b}aa", []int{0}, []int{3},
+			[]string{"", "aa"}, []string{"b"}},
+		{"aa{b}", []int{2}, []int{5},
+			[]string{"aa", ""}, []string{"b"}},
+		{"{b}", []int{0}, []int{3},
+			[]string{"", ""}, []string{"b"}},
+		{"a{b}c(dd)e::", []int{1, 5, 10}, []int{4, 9, 12},
+			[]string{"a", "c", "e", ""}, []string{"b", "dd", ""}},
+	}
+
+	for i := range tests {
+		text, vars := splitFormatString(
+			tests[i].format, tests[i].starts, tests[i].ends,
+		)
+		if !stringsEq(text, tests[i].text) || !stringsEq(vars, tests[i].vars) {
+			t.Errorf("%d) Expected '%s', starts = %d, ends = %d to split to text = %s, vars = %s, but got text = %s, vars = %s",
+				i, tests[i].format, tests[i].starts, tests[i].ends,
+				tests[i].text, tests[i].vars, text, vars,
+			)
+		}
+	}
+}
+
 //////////////////////
 // Helper functions //
 //////////////////////
