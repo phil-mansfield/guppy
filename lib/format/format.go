@@ -80,7 +80,7 @@ func ExpandSequenceFormat(format string) ([]int, error) {
 			delete(m, n)
 		}
 	}
-
+	
 	if len(m) > BigNumber {
 		return nil, fmt.Errorf("This sequence would have %d elements, which is almost certianly a bug.", len(m))
 	}
@@ -89,7 +89,7 @@ func ExpandSequenceFormat(format string) ([]int, error) {
 	out := []int{ }
 	for n := range m { out = append(out, n) }
 	sort.Ints(out)
-
+	
 	return out, nil
 }
 
@@ -104,7 +104,8 @@ func tokeniseSequenceFormat(format string) ([]string, error) {
 	tokRaw := strings.Split(formatClean, " ")
 	tok := []string{ }
 	for i := range tokRaw {
-		if len(tokRaw) > 0 {
+		tokRaw[i] = strings.Trim(tokRaw[i], " ")
+		if len(tokRaw[i]) > 0 {
 			tok = append(tok, tokRaw[i])
 		}
 	}
@@ -116,12 +117,24 @@ func tokeniseSequenceFormat(format string) ([]string, error) {
 }
 
 func addsSubsSequenceFormat(tok []string) (adds, subs []string, err error) {
+	if len(tok) == 0 {
+		return nil, nil, fmt.Errorf("Format string is empty")
+	}
+
+	
 	// Handle the case where the starting "+" is dropped.
 	adds, subs = []string{}, []string{}
 	var start int
 	if tok[0] == "+" || tok[0] == "-" {
 		start = 0
 	} else {
+		if err := isSequenceFormatToken(tok[0]); err != nil {
+			return nil, nil, fmt.Errorf(
+				"Element number %d, '%s', cannot be parsed because %s",
+				1, tok[0], err.Error(),
+			)
+		}
+		
 		adds = append(adds, tok[0])
 		start = 1
 	}
@@ -160,27 +173,36 @@ func addsSubsSequenceFormat(tok []string) (adds, subs []string, err error) {
 // a sequence format and an error describing the problem otherwise. The error
 // message assumes it is printed after a trailing "beacause"
 func isSequenceFormatToken(tok string) error {
+	if len(tok) == 0 {
+		return fmt.Errorf("the format string is empty.")
+	}
+	
 	bounds := strings.Split(tok, "..")
 
 	switch len(bounds) {
 	case 1:
 		_, err := strconv.Atoi(bounds[0])
 		if err != nil {
-			return fmt.Errorf("%s is not an integer.", bounds[0])
+			return fmt.Errorf("'%s' is not an integer.", bounds[0])
 		}
 		return nil
 	case 2:
-		_, err1 := strconv.Atoi(bounds[0])
+		start, err1 := strconv.Atoi(bounds[0])
 		if err1 != nil {
-			return fmt.Errorf("%s is not an integer.", bounds[0])
+			return fmt.Errorf("'%s' is not an integer.", bounds[0])
 		}
-		_, err2 := strconv.Atoi(bounds[1])
+		end, err2 := strconv.Atoi(bounds[1])
 		if err2 != nil {
-			return fmt.Errorf("%s is not an integer.", bounds[1])
+			return fmt.Errorf("'%s' is not an integer.", bounds[1])
 		}
+		if end < start {
+			return fmt.Errorf("lower bound %d is larger than upper bound %d.",
+				start, end)
+		}
+		
 		return nil
 	}
-	return fmt.Errorf("it has more than one '..'")
+	return fmt.Errorf("it has more than one '..'.")
 }
 
 // parseSeqeunceFormatToken parses a single token in a seqeunce format stirng
@@ -197,8 +219,8 @@ func parseSequenceFormatToken(tok string) []int {
 		n, _ := strconv.Atoi(tok)
 		return []int{ n }
 	case 2:
-		start, _ := strconv.Atoi(tok)
-		end, _ := strconv.Atoi(tok)
+		start, _ := strconv.Atoi(bounds[0])
+		end, _ := strconv.Atoi(bounds[1])
 		out := []int{ }
 		for n := start; n <= end; n++ {
 			out = append(out, n)
@@ -290,9 +312,9 @@ func NewFileFormatComponents(
 
 		v := format[starts[i]+1: ends[i]-1]
 
-		base := fmt.Sprintf("The file format '%s' has an invalid variable, '%s'. Variables should contain a formatting 'verb' (e.g. '%%d', '%%03d', etc.), a comma, and an argument giving the values that variable takes on (e.g. '0..511', 'snapshot', etc.)", format, )
+		//base := fmt.Sprintf("The file format '%s' has an invalid variable, '%s'. Variables should contain a formatting 'verb' (e.g. '%%d', '%%03d', etc.), a comma, and an argument giving the values that variable takes on (e.g. '0..511', 'snapshot', etc.)", format, )
 
-		_, _ = v, base
+		_ = v //base
 		/*
 		tok := strings.Split(v, ",")
 		if len(tok) != 2 {
