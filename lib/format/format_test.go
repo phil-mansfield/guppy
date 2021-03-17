@@ -457,6 +457,64 @@ func TestExpandSeqeunceValues(t *testing.T) {
 	}
 }
 
+func TestExpandFormatString(t *testing.T) {
+	m := map[string]int{ "aa": 13, "bb": 42 }
+	tests := []struct {
+		format string
+		out []string
+		valid bool
+	} {
+		{"", []string{""}, true},
+		{"qwerty", []string{"qwerty"}, true},
+		{"{%d,aa}", []string{"13"}, true},
+		{"{%d,bb}", []string{"42"}, true},
+		{"{%03d,aa}", []string{"013"}, true},
+		{"{%03li,aa}", []string{"013"}, true},
+		{"{%d,aa}:{%d,bb}", []string{"13:42"}, true},
+		{"{%d,aa} {%d,bb}", []string{"13 42"}, true},
+		{"{%03d,aa} {%03d,bb}: {%+d,aa}", []string{"013 042: +13"}, true},
+		{"{%d,1}", []string{"1"}, true},
+		{"{%03d,20}", []string{"020"}, true},
+		{"?{%d,25}{% 5d,bb}?", []string{"?25   42?"}, true},
+		{"petting {%d,3} cats and {%d,2} dogs",
+			[]string{"petting 3 cats and 2 dogs"}, true},
+		{"{%d,1..3}", []string{"1", "2", "3"}, true},
+		{"({%d,aa}^{%d,1..3})", []string{"(13^1)", "(13^2)", "(13^3)"}, true},
+		{"{%d,1..2}{%d,3..4}{%d,5..6}",
+			[]string{"135", "235", "145", "245",
+				"136", "236", "146", "246"}, true},
+		{"{%d,1..2} {%03d,aa} {%d,5..6}",
+			[]string{"1 013 5", "2 013 5", "1 013 6", "2 013 6"}, true},
+
+		{"wombo{combo", nil, false},
+		{"wombo}combo", nil, false},
+		{"wombo{}combo", nil, false},
+		{"{wombo}combo", nil, false},
+		{"{wombo,combo}", nil, false},
+		{"{%wombo,combo}", nil, false},
+		{"wombo {%d,combo}", nil, false},
+		{"wombo {%combo,1}", nil, false},
+		{"wombo {%^d,1} combo", nil, false},
+		{"wombo {%0?d,1} combo", nil, false},
+		{"wombo {%d,1..2..3} combo", nil, false},
+		{"wombo {%d,1..2 - 3} combo", nil, false},
+	}
+
+	for i := range tests {
+		out, err := ExpandFormatString(tests[i].format, m)
+		if tests[i].valid && err != nil {
+			t.Errorf("%d) Expected '%s' could be expanded, but got error %s.",
+				i, tests[i].format, err.Error())
+		} else if !tests[i].valid && err == nil {
+			t.Errorf("%d) Expected '%s' would fail, but got not error.",
+				i, tests[i].format)
+		} else if !stringsEq(out, tests[i].out) {
+			t.Errorf("%d) Expected '%s' would expand to %s, but got %s.",
+				i, tests[i].format, tests[i].out, out)
+		}
+	}
+}
+
 //////////////////////
 // Helper functions //
 //////////////////////

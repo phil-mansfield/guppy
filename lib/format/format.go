@@ -253,7 +253,7 @@ func ExpandFormatString(format string, vals map[string]int) ([]string, error) {
 	starts, ends, err := startsEndsFormatString(format)
 	if err != nil { return nil, err }
 	text, vars := splitFormatString(format, starts, ends)
-
+	
 	// Parse each variable
 	verb, rule := make([]string, len(vars)), make([]string, len(vars))
 	isSeq := make([]bool, len(vars))
@@ -265,13 +265,28 @@ func ExpandFormatString(format string, vals map[string]int) ([]string, error) {
 		}
 	}
 
-	seqVals, nTot := expandSeqValues(rule, isSeq)
-
-	_ = seqVals
-	_ = nTot
-	_ = text
+	expSeq, nTot := expandSeqValues(rule, isSeq)
+	if nTot == 0 { nTot = 1 }
 	
-	return nil, nil
+	// Construct the strings from the various rules and format verbs.
+	out := make([]string, nTot)
+	for i := range out {
+		tok := []string{ }
+		for j := range rule {
+			tok = append(tok, text[j])
+			if isSeq[j] {
+				tok = append(tok, fmt.Sprintf(verb[j], expSeq[j][i]))
+			} else {
+				tok = append(tok, fmt.Sprintf(verb[j], vals[rule[j]]))
+			}
+		}
+		
+		tok = append(tok, text[len(text) - 1])
+		
+		out[i] = strings.Join(tok, "")
+	}
+	
+	return out, nil
 }
 
 
