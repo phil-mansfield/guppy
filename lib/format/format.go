@@ -49,6 +49,11 @@ const (
 	BigNumber = 1<<20
 )
 
+var (
+	LowerCase = "abcdefghijklmnopqrstuvwxyz"
+	AllLetters = LowerCase + strings.ToUpper(LowerCase)
+)
+
 // ExpandSequenceFormat expands a sequence format string into a sorted sequence
 // of integers.
 func ExpandSequenceFormat(format string) ([]int, error) {
@@ -253,7 +258,7 @@ func ExpandFormatString(format string, vals map[string]int) ([]string, error) {
 	verb, rule := make([]string, len(vars)), make([]string, len(vars))
 	isSeq := make([]bool, len(vars))
 	for i := range vars {
-		verb[i], rule[i], isSeq[i], err = splitFormatStringVar(vars[i])
+		verb[i], rule[i], isSeq[i], err = splitFormatStringVar(vars[i], vals)
 		if err != nil {
 			return nil, fmt.Errorf("Could not parse variable %d, {%s}, because %s",
 				i+1, vars[i], err.Error())
@@ -335,7 +340,11 @@ func splitFormatString(
 	return text, vars
 }
 
-func splitFormatStringVar(v string) (verb, rule string, isSeq bool, err error) {
+// splitFormatStringVar splits the components of the variable v into a printf
+// verb and a variable
+func splitFormatStringVar(
+	v string, m map[string]int,
+) (verb, rule string, isSeq bool, err error) {
 	tok := strings.Split(v, ",")
 	if len(tok) == 1 {
 		return "", "", false, fmt.Errorf("it does not have a comma.")
@@ -344,10 +353,32 @@ func splitFormatStringVar(v string) (verb, rule string, isSeq bool, err error) {
 	}
 
 	verb, rule = tok[0], tok[1]
-	verb, err = fixVerb(v)
+	verb, err = fixVerb(verb)
 	if err != nil { return "", "", false, err }
 
-	return verb, rule, false, nil
+	isSeq = !strings.ContainsAny(rule, AllLetters)
+
+	if isSeq {		
+		if _, err := ExpandSequenceFormat(rule); err != nil {
+			return "", "", false, fmt.Errorf(
+				"'%s' can't be parsed as a sequence. %s", rule, err.Error(),
+			)
+		}
+	} else {
+		if _, ok := m[rule]; !ok {
+			return "", "", false, fmt.Errorf("'%s' is not a valid variable name. The only valid variable names are %s.",
+				rule, allVars(m))
+		}
+	}
+
+	return verb, rule, isSeq, nil
+}
+
+func allVars(m map[string]int) []string {
+	keys := []string{ }
+	for key, _ := range m { keys = append(keys, key) }
+	sort.Strings(keys)
+	return keys
 }
 
 // fixVerb fixes printf verbs formatted after Python and C rules and throws an

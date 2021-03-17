@@ -330,6 +330,48 @@ func TestFixVerb(t *testing.T) {
 	}
 }
 
+func TestSplitFormatStringVar(t *testing.T) {
+	m :=  map[string]int{ "aa": 10, "bb": 20}
+	tests := []struct{
+		v, verb, rule string
+		isSeq, valid bool
+	} {
+		{"%d,aa", "%d", "aa", false, true},
+		{"%d,bb", "%d", "bb", false, true},
+		{"%03d,aa", "%03d", "aa", false, true},
+		{"%+li,aa", "%+d", "aa", false, true},
+		{"%d,1", "%d", "1", true, true},
+		{"%d,1..4", "%d", "1..4", true, true},
+		{"% 10d,1..100 + 200..210 - 50", "% 10d", "1..100 + 200..210 - 50",
+			true, true},
+
+		{"%p,aa", "", "", false, false},
+		{"%03+d,aa", "", "", false, false},
+		{"%dd,aa", "", "", false, false},
+		{"%p,cc", "", "", false, false},
+		{"%p,1a", "", "", false, false},
+		{"% 10d,1..100 + 200..210..1 - 50", "", "", false, false},
+
+	}
+
+	for i := range tests {
+		verb, rule, isSeq, err := splitFormatStringVar(tests[i].v, m)
+
+		if tests[i].valid && err != nil {
+			t.Errorf("%d) Expected '%s' could be split, but got error '%s'.",
+				i, tests[i].v, err.Error())
+		} else if !tests[i].valid && err ==nil {
+			t.Errorf("%d) Expected '%s' couldn't be split, but go not error.",
+				i, tests[i].v)
+		} else if tests[i].valid && (isSeq != tests[i].isSeq ||
+			verb != tests[i].verb || rule != tests[i].rule) {
+			t.Errorf("%d) Expected '%s' would be split into verb = '%s', rule = '%s', and isSeq = %v, but got verb = '%s', rule = '%s', and isSeq = %v.",
+				i, tests[i].v, tests[i].verb, tests[i].rule,
+				tests[i].isSeq, verb, rule, isSeq)
+		}
+	}
+}
+
 //////////////////////
 // Helper functions //
 //////////////////////
