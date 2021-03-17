@@ -265,6 +265,10 @@ func ExpandFormatString(format string, vals map[string]int) ([]string, error) {
 		}
 	}
 
+	seqVals, nTot := expandSeqValues(rule, isSeq)
+
+	_ = seqVals
+	_ = nTot
 	_ = text
 	
 	return nil, nil
@@ -374,6 +378,7 @@ func splitFormatStringVar(
 	return verb, rule, isSeq, nil
 }
 
+// allVars returns a sorted array of a map's keys.
 func allVars(m map[string]int) []string {
 	keys := []string{ }
 	for key, _ := range m { keys = append(keys, key) }
@@ -448,4 +453,49 @@ ModLoop:
 	}
 	
 	return v, nil
+}
+
+// expandSeqValues multiplicatively expands seqeunce rules. For example, if you
+// have sequence rules corresponding to [1, 2, 3] [4] [10, 1], you would get
+// 1 4 10
+// 2 4 10
+// 3 4 10
+// 1 4 11
+// 2 4 11
+// 3 4 11
+// For convenience with other funcitons, these rules can be part of a rule
+// array that does nto contain sequence rules, as specified by isSeq.
+func expandSeqValues(rule []string, isSeq []bool) ([][]int, int) {
+	if len(rule) == 0 {
+		return [][]int{ }, 0
+	}
+	
+	baseVals := make([][]int, len(isSeq))
+	nTot := 1
+	for i := range rule {
+		if !isSeq[i] { continue }
+		
+		// The error value has already been checked.
+		baseVals[i], _ = ExpandSequenceFormat(rule[i])
+		nTot *= len(baseVals[i])
+	}
+
+	expVals := make([][]int, len(baseVals))
+	for i := range baseVals {
+		if !isSeq[i] { continue }
+
+		nCurr := len(baseVals[i])
+		nBase := 1
+		for j := 0; j < i; j++ {
+			if len(baseVals[j]) == 0 { continue }
+			nBase *= len(baseVals[j])
+		}
+
+		expVals[i] = make([]int, nTot)
+		for j := 0; j < nTot; j++ {
+			expVals[i][j] = baseVals[i][(j / nBase) % nCurr]
+		}
+	}
+
+	return expVals, nTot
 }

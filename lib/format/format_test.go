@@ -372,6 +372,91 @@ func TestSplitFormatStringVar(t *testing.T) {
 	}
 }
 
+func TestExpandSeqeunceValues(t *testing.T) {
+	tests := []struct {
+		rule []string
+		isSeq []bool
+		expSeq [][]int
+		nTot int
+	} {
+		{
+			[]string{},
+			[]bool{},
+			[][]int{},
+			0,
+		},
+		{
+			[]string{"1"},
+			[]bool{true},
+			[][]int{{1}},
+			1,
+		},
+		{
+			[]string{"1 + 3..5"},
+			[]bool{true},
+			[][]int{{1, 3, 4, 5}},
+			4,
+		},
+		{
+			[]string{"1", "2"},
+			[]bool{true, false},
+			[][]int{{1}, {}},
+			1,
+		},
+		{
+			[]string{"1", "2"},
+			[]bool{false, true},
+			[][]int{{}, {2}},
+			1,
+		},
+		{
+			[]string{"1", "2"},
+			[]bool{true, true},
+			[][]int{{1}, {2}},
+			1,
+		},
+		{
+			[]string{"1", "2", "3"},
+			[]bool{true, false, true},
+			[][]int{{1}, {}, {3}},
+			1,
+		},
+		{
+			[]string{"1..3", "10..11",},
+			[]bool{true, true},
+			[][]int{{1, 2, 3, 1, 2, 3}, {10, 10, 10, 11, 11, 11}},
+			6,
+		},
+		{
+			[]string{"1..3", "10..11", "0 + 5"},
+			[]bool{true, true, false},
+			[][]int{{1, 2, 3, 1, 2, 3}, {10, 10, 10, 11, 11, 11}, {}},
+			6,
+		},
+		{
+			[]string{"1..3", "4", "10..11", "0 + 5"},
+			[]bool{true, true, true, true},
+			[][]int{{1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2, 3},
+				{4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4},
+				{10, 10, 10, 11, 11, 11, 10, 10, 10, 11, 11, 11},
+				{0, 0, 0, 0, 0, 0, 5, 5, 5, 5, 5, 5}},
+			12,
+		},
+	}
+
+	for i := range tests {
+		expSeq, nTot := expandSeqValues(tests[i].rule, tests[i].isSeq)
+
+		if nTot != tests[i].nTot {
+			t.Errorf("%d) Expected %s to expand to %d elemnts, got %d.",
+				i, tests[i].rule, tests[i].nTot, nTot)
+		} else if !intArraysEq(expSeq, tests[i].expSeq) {
+			t.Errorf("%d) Expected %s to expand to %d, got %d.",
+				i, tests[i].rule, tests[i].expSeq, expSeq)
+		}
+	}
+}
+
 //////////////////////
 // Helper functions //
 //////////////////////
@@ -380,6 +465,14 @@ func intsEq(x, y []int) bool {
 	if len(x) != len(y) { return false }
 	for i := range x {
 		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+func intArraysEq(x, y [][]int) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if !intsEq(x[i], y[i]) { return false }
 	}
 	return true
 }
