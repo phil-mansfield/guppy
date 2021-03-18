@@ -4,10 +4,19 @@ and writing a struct that implements the Header interface.
 */
 package snapio
 
-// Header is an abstraction over the the header data of various snapshot
-// formats.
+type FileType int64
+const (
+	Gadget2 FileType = iota
+	LGadget2
+)
+
+// File is a generic interface around
+type File interface {
+	FileType() FileType
+	ReadHeader() Header
+	Read(name string, buf Buffer)
+}
+
 type Header interface {
-	// ToBytes converts the Header to bytes. In most cases, this should just be
-	// calling binary.Encode() on the struct.
 	ToBytes() []byte
 }
