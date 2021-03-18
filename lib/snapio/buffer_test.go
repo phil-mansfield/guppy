@@ -59,7 +59,10 @@ TestLoop:
 					tests[i].index[j] {
 					t.Errorf("%d) Expected '%s' would have index %d, got %d",
 						i, tests[i].varNames[j], tests[i].index[j], index)
-				continue TestLoop
+					continue TestLoop
+				} else if buf.isRead[tests[i].varNames[j]] {
+					t.Errorf("%d) isRead['%s'] was set to true.".
+						i, tests[i].varNames[j])
 				}
 			}
 		}
