@@ -320,7 +320,7 @@ func startsEndsFormatString(format string) (starts, ends []int, err error) {
 
 	if len(ends) != len(starts) {
 		end := len(starts) - 1
-		return nil, nil, fmt.Errorf("The file format '%s' has a '{' without a matching '}', making it invalid. This '{' is character %d. ",
+		return nil, nil, fmt.Errorf("The format string '%s' has a '{' without a matching '}', making it invalid. This '{' is character %d. ",
 			format, starts[end] + 1)
 	}
 
