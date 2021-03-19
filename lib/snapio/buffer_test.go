@@ -1,6 +1,9 @@
 package snapio
 
 import (
+	"bytes"
+	"io"
+	
 	"encoding/binary"
 	"testing"
 )
@@ -61,7 +64,7 @@ TestLoop:
 						i, tests[i].varNames[j], tests[i].index[j], index)
 					continue TestLoop
 				} else if buf.isRead[tests[i].varNames[j]] {
-					t.Errorf("%d) isRead['%s'] was set to true.".
+					t.Errorf("%d) isRead['%s'] was set to true.",
 						i, tests[i].varNames[j])
 				}
 			}
@@ -98,4 +101,127 @@ TestLoop:
 				i, tests[i].nv64, len(buf.v64))
 		}
 	}
+}
+
+func TestReadPrimitive(t *testing.T) {
+	f32 := []float32{ 1.0, 1.333, 2.0 }
+	f32Out := []float32{ 0, 0, 0}
+	f64 := []float64{ -1e20, 1.444e14, 6.4 }
+	f64Out := []float64{ 0, 0, 0}
+	u32 := []uint32{ 4, 8, 15, 16, 23, 42 }
+	u32Out := []uint32{ 0, 0, 0, 0, 0, 0}
+	u64 := []uint64{ 42, 23, 16, 15, 8, 4 }
+	u64Out := []uint64{ 0, 0, 0, 0, 0, 0}
+	v32 := [][3]float32{{0.0, 0.1, 0.2}, {0.3, 0.4, 0.5}, {0.6, 0.7, 0.8}}
+	v32Out := [][3]float32{ {}, {}, {} }
+	v64 := [][3]float64{{0, -0.1, -0.2}, {-0.3, -0.4, -0.5}, {-0.6, -0.7, -0.8}}
+	v64Out := [][3]float64{ {}, {}, {} }
+	
+	orders := []binary.ByteOrder{ binary.LittleEndian, binary.LittleEndian }
+	for _, order := range orders {
+		buf := &Buffer{ byteOrder: order }
+		
+		rd := fakeReader(order, f32)
+		buf.readPrimitive(rd, f32Out)
+		if !float32sEq(f32, f32Out) {
+			t.Errorf("Wrote f32 %f with byteOrder = %d, read %f.",
+				f32, order, f32Out)
+		}
+
+		rd = fakeReader(order, f64)
+		buf.readPrimitive(rd, f64Out)
+		if !float64sEq(f64, f64Out) {
+			t.Errorf("Wrote f64 %f with byteOrder = %d, read %f.",
+				f64, order, f64Out)
+		}
+
+		rd = fakeReader(order, v32)
+		buf.readPrimitive(rd, v32Out)
+		if !vec32sEq(v32, v32Out) {
+			t.Errorf("Wrote v32 %f with byteOrder = %d, read %f.",
+				v32, order, v32Out)
+		}
+
+		rd = fakeReader(order, v64)
+		buf.readPrimitive(rd, v64Out)
+		if !vec64sEq(v64, v64Out) {
+			t.Errorf("Wrote v64 %f with byteOrder = %d, read %f.",
+				v64, order, v64Out)
+		}
+
+		rd = fakeReader(order, u32)
+		buf.readPrimitive(rd, u32Out)
+		if !uint32sEq(u32, u32Out) {
+			t.Errorf("Wrote u32 %d with byteOrder = %d, read %d.",
+				u32, order, u32Out)
+		}
+
+		rd = fakeReader(order, u64)
+		buf.readPrimitive(rd, u64Out)
+		if !uint64sEq(u64, u64Out) {
+			t.Errorf("Wrote u64 %d with byteOrder = %d, read %d.",
+				u64, order, u64Out)
+		}
+	}
+}
+
+func fakeReader(order binary.ByteOrder, x interface{}) io.Reader {
+	buf := &bytes.Buffer{ }
+	binary.Write(buf, order, x)
+	b := buf.Bytes()
+	rd := bytes.NewReader(b)
+	return rd
+	
+}
+
+///////////////////////
+// Utility functions //
+///////////////////////
+
+func float32sEq(x, y []float32) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+func float64sEq(x, y []float64) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+func uint32sEq(x, y []uint32) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+func uint64sEq(x, y []uint64) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+func vec32sEq(x, y [][3]float32) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+func vec64sEq(x, y [][3]float64) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
 }

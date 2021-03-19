@@ -39,7 +39,7 @@ func newBuffer(
 ) (*Buffer, error) {
 	buf := &Buffer{
 		byteOrder: byteOrder, varType: map[string]string{ },
-		index: map[string]int{ },
+		index: map[string]int{ }, isRead: map[string]bool{ },
 	}
 	
 	for i, name := range varNames {
