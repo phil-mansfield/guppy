@@ -1,5 +1,9 @@
 package snapio
 
+/* This file handles codes related to the generic Buffer object. Much of this
+code is just type switches. It'll be obsolete if Guppy is ever ported to Go 2.
+*/
+
 import (
 	"encoding/binary"
 	"fmt"
@@ -171,14 +175,40 @@ func (buf *Buffer) readPrimitive(rd io.Reader, x interface{}) error {
 		hd.Len /= 3
 		hd.Cap /= 3
 	default:
-		return fmt.Errorf("readPrimitive attempted to read an unsupported datatype. This must be an internal error (perhaps related to an incomplete feature addition).")
+		panic("(Supposedly) impossible type configuration")
 	}
 	return err
 }
 
 // expand expands an array to have size n.
 func expand(x interface{}, n int) interface{} {
-	panic("NYI")
+	switch xx := x.(type) {
+	case []float32:
+		m := len(xx)
+		if m < n { xx = append(xx, make([]float32, n-m)...) }
+		return xx[:n]
+	case []float64:
+		m := len(xx)
+		if m < n { xx = append(xx, make([]float64, n-m)...) }
+		return xx[:n]
+	case [][3]float32:
+		m := len(xx)
+		if m < n { xx = append(xx, make([][3]float32, n-m)...) }
+		return xx[:n]
+	case [][3]float64:
+		m := len(xx)
+		if m < n { xx = append(xx, make([][3]float64, n-m)...) }
+		return xx[:n]
+	case []uint32:
+		m := len(xx)
+		if m < n { xx = append(xx, make([]uint32, n-m)...) }
+		return xx[:n]
+	case []uint64:
+		m := len(xx)
+		if m < n { xx = append(xx, make([]uint64, n-m)...) }
+		return xx[:n]
+	}
+	panic("(Supposedly) impossible type configuration.")
 }
 
 // Get returns an interface pointing to the slice associated with a given

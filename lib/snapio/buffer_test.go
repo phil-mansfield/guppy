@@ -165,6 +165,48 @@ func TestReadPrimitive(t *testing.T) {
 	}
 }
 
+func TestExpand(t *testing.T) {
+	f32, f64 := []float32{}, []float64{}
+	u32, u64 := []uint32{}, []uint64{}
+	v32, v64 := [][3]float32{}, [][3]float64{}
+
+	sizes := []int{0, 0, 10, 10, 5, 10, 20, 5}
+	for i := range sizes {
+
+		f32, _ = expand(f32, sizes[i]).([]float32)
+		f64, _ = expand(f64, sizes[i]).([]float64)
+		v32, _ = expand(v32, sizes[i]).([][3]float32)
+		v64, _ = expand(v64, sizes[i]).([][3]float64)
+		u32, _ = expand(u32, sizes[i]).([]uint32)
+		u64, _ = expand(u64, sizes[i]).([]uint64)
+
+		if len(f32) != sizes[i] {
+			t.Errorf("%d) For f32, expected size %d, got %d.",
+				i, sizes[i], len(f32))
+		}
+		if len(f64) != sizes[i] {
+			t.Errorf("%d) For f64, expected size %d, got %d.",
+				i, sizes[i], len(f64))
+		}
+		if len(v32) != sizes[i] {
+			t.Errorf("%d) For v32, expected size %d, got %d.",
+				i, sizes[i], len(v32))
+		}
+		if len(v64) != sizes[i] {
+			t.Errorf("%d) For v64, expected size %d, got %d.",
+				i, sizes[i], len(v64))
+		}
+		if len(u32) != sizes[i] {
+			t.Errorf("%d) For u32, expected size %d, got %d.",
+				i, sizes[i], len(u32))
+		}
+		if len(u64) != sizes[i] {
+			t.Errorf("%d) For u64, expected size %d, got %d.",
+				i, sizes[i], len(u64))
+		}
+	}
+}
+
 func fakeReader(order binary.ByteOrder, x interface{}) io.Reader {
 	buf := &bytes.Buffer{ }
 	binary.Write(buf, order, x)
