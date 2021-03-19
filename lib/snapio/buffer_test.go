@@ -207,6 +207,93 @@ func TestExpand(t *testing.T) {
 	}
 }
 
+func TestRead(t *testing.T) {
+	order := binary.LittleEndian
+	x := []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	rd := fakeReader(order, x)
+	varNames := []string{"x1", "x2", "id"}
+	varTypes := []string{"u32", "u32", "u64"}
+	
+	buf, err := newBuffer(order, varNames, varTypes)
+	if err != nil { panic(err.Error()) }
+
+	var x1int, x2int interface{}
+	var x1, x2 []uint32
+	err = buf.read(rd, "x1", 2)
+	if err != nil {
+		t.Errorf("Expected read to succeed, but got error '%s'", err.Error())
+	}
+	err = buf.read(rd, "x2", 2)
+	if err != nil {
+		t.Errorf("Expected read to succeed, but got error '%s'", err.Error())
+	}
+
+	x1int, err = buf.Get("x1")
+	x1, _ = x1int.([]uint32)
+	if err != nil {
+		t.Errorf("Expected Get to succeed, but got error '%s'", err.Error())
+	}
+	x2int, err = buf.Get("x2")
+	x2, _ = x2int.([]uint32)
+	if err != nil {
+		t.Errorf("Expected Get to succeed, but got error '%s'", err.Error())
+	}
+		
+	x1Exp, x2Exp := []uint32{ 0, 1 }, []uint32{ 2, 3 }
+	if !uint32sEq(x2Exp, x2) {
+		t.Errorf("Expected x1 = %d, got %d.", x1Exp, x1)
+	}
+	if !uint32sEq(x2Exp, x2) {
+		t.Errorf("Expected x1 = %d, got %d.", x2Exp, x2)
+	}
+
+	buf.Reset()
+	
+	err = buf.read(rd, "x1", 3)
+	if err != nil {
+		t.Errorf("Expected read to succeed, but got error '%s'", err.Error())
+	}
+	err = buf.read(rd, "x2", 3)
+	if err != nil {
+		t.Errorf("Expected read to succeed, but got error '%s'", err.Error())
+	}
+
+	x1int, err = buf.Get("x1")
+	x1, _ = x1int.([]uint32)
+	if err != nil {
+		t.Errorf("Expected Get to succeed, but got error '%s'", err.Error())
+	}
+	x2int, err = buf.Get("x2")
+	x2, _ = x2int.([]uint32)
+	if err != nil {
+		t.Errorf("Expected Get to succeed, but got error '%s'", err.Error())
+	}
+	
+	x1Exp, x2Exp = []uint32{ 4, 5, 6 }, []uint32{ 7, 8, 9 }
+	if !uint32sEq(x2Exp, x2) {
+		t.Errorf("Expected x1 = %d, got %d.", x1Exp, x1)
+	}
+	if !uint32sEq(x2Exp, x2) {
+		t.Errorf("Expected x1 = %d, got %d.", x2Exp, x2)
+	}
+
+	// Things that should lead to errors:
+	err = buf.read(rd, "x3", 1)
+	if err == nil {
+		t.Errorf("Expected invalid varName to fail, but got no error.")
+	}
+	err = buf.read(rd, "x1", 1)
+	if err == nil {
+		t.Errorf("Expected double read to fail, but got no error.")
+	}
+
+	buf.Reset()
+	err = buf.read(rd, "x1", 10)
+	if err == nil {
+		t.Errorf("Expected read past Reader end to fail, but got no error.")
+	}
+}
+
 func fakeReader(order binary.ByteOrder, x interface{}) io.Reader {
 	buf := &bytes.Buffer{ }
 	binary.Write(buf, order, x)

@@ -2,6 +2,10 @@ package snapio
 
 /* This file handles codes related to the generic Buffer object. Much of this
 code is just type switches. It'll be obsolete if Guppy is ever ported to Go 2.
+
+After writing and testing this, I realized that the code can be made much
+simpler if Buffer just has an array of interface{} values instead of different
+arrays for each type, so if someone does a rewrite of this, just do that.
 */
 
 import (
@@ -137,6 +141,8 @@ func (buf *Buffer) read(rd io.Reader, name string, n int) error {
 		return fmt.Errorf("'%s' is not a valid type. Only 'f32', 'f64', 'v32', 'v64', 'u32', and 'u64' are valid.", varType)
 	}
 
+	buf.isRead[name] = true
+	
 	return err
 }
 
@@ -213,6 +219,23 @@ func expand(x interface{}, n int) interface{} {
 
 // Get returns an interface pointing to the slice associated with a given
 // variable name.
-func (buf *Buffer) Get(rd io.Reader, name string) (interface{}, error) {
-	panic("NYI")
+func (buf *Buffer) Get(name string) (interface{}, error) {
+	varType, ok := buf.varType[name]
+	if !ok {
+		return nil, fmt.Errorf("'%s' is not a recognized variable name.", name)
+	} else if !buf.isRead[name] {
+		return nil, fmt.Errorf("'%s' has not been read.", name)
+	}
+
+	idx := buf.index[name]
+	switch varType {
+	case "f32": return buf.f32[idx], nil
+	case "f64": return buf.f64[idx], nil
+	case "v32": return buf.v32[idx], nil
+	case "v64": return buf.v64[idx], nil
+	case "u32": return buf.u32[idx], nil
+	case "u64": return buf.u64[idx], nil
+	}
+
+	panic("(Supposedly) impossible type configuration")
 }
