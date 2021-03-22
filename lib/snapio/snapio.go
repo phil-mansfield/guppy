@@ -21,6 +21,12 @@ type Header interface {
 	// be preserved exactly, so that there is no header information lost.
 	ToBytes() []byte
 
+	// Names returns the names of the fields stored in the file, in the order
+	// they will be stored in the .gup file.
+	Names() []string
+	// Types returns strings describing the types of the file's fields.
+	Types() []string
+	
 	// NTot returns the total number of particles in the simulation.
 	NTot() int
 	// Z returns the redshift of the snapshot.
