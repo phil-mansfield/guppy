@@ -6,11 +6,15 @@ information.
 */
 package snapio
 
+import (
+	"encoding/binary"
+)
+
 // File is a generic interface around different file types.
 type File interface {
 	// ReadHeader reads the file's header and abstracts it behind the Header
 	// interface.
-	ReadHeader() Header
+	ReadHeader() (Header, error)
 	// Read reads a given variable into a Buffer.
 	Read(name string, buf *Buffer) error
 }
@@ -20,6 +24,8 @@ type Header interface {
 	// ToBytes converts the content of the original header to bytes. This should
 	// be preserved exactly, so that there is no header information lost.
 	ToBytes() []byte
+	// ByteOrder returns the order of bytes in the file.
+	ByteOrder() binary.ByteOrder
 
 	// Names returns the names of the fields stored in the file, in the order
 	// they will be stored in the .gup file.

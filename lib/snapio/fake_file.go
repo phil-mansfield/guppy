@@ -13,6 +13,7 @@ import (
 type FakeFileHeader struct {
 	names, types []string
 	nTot int
+	order binary.ByteOrder
 }
 
 // FakeFile is a object that implements the File interface for testing purposes,
@@ -34,7 +35,7 @@ var (
 
 // NewFakeFile creates a new FakeFile with the given IDs and position vectors.
 // The snapshot has nTot files across all files and the byte order is given by
-// order. The box will be 100 cMpc/h on a side and has z=0, Om = 0.27, and
+// order. The box will be 100 cMpc/h on a side and has z=1.0, Om = 0.27, and
 // h100 = 0.7.
 func NewFakeFile(
 	names []string, values []interface{},
@@ -44,7 +45,14 @@ func NewFakeFile(
 	readers := make([]io.Reader, len(names))
 	types := make([]string, len(names))
 	for i := range names {
-		if names[i] == "id" { n = len(names[i]) }
+		if names[i] == "id" {
+			switch  id := values[i].(type) {
+			case []uint32: n = len(id)
+			case []uint64: n = len(id)
+			default:
+				return nil, fmt.Errorf("'id' field not set to u32 or u64 type.")
+			}
+		}
 		readers[i] = arrayToReader(values[i], order)
 
 		switch values[i].(type) {
@@ -66,8 +74,8 @@ func NewFakeFile(
 	}, nil
 }
 
-func (f *FakeFile) ReadHeader() Header {
-	return &FakeFileHeader{ f.names, f.types, f.nTot }
+func (f *FakeFile) ReadHeader() (Header, error) {
+	return &FakeFileHeader{ f.names, f.types, f.nTot, f.order }, nil
 }
 
 func (f *FakeFile) Read(name string, buf *Buffer) error {
@@ -79,11 +87,12 @@ func (f *FakeFile) Read(name string, buf *Buffer) error {
 	return fmt.Errorf("There is no field '%s' in the file.", name)
 }
 
-func (f *FakeFileHeader) ToBytes() []byte{ return []byte{4, 8, 15, 16, 23, 46} }
+func (f *FakeFileHeader) ToBytes() []byte{ return []byte{4, 8, 15, 16, 23, 42} }
+func (f *FakeFileHeader) ByteOrder() binary.ByteOrder { return f.order }
 func (f *FakeFileHeader) Names() []string { return f.names }
 func (f *FakeFileHeader) Types() []string { return f.types }
 func (f *FakeFileHeader) NTot() int { return f.nTot }
-func (f *FakeFileHeader) Z() float64 { return 0.0 }
+func (f *FakeFileHeader) Z() float64 { return 1.0 }
 func (f *FakeFileHeader) OmegaM() float64 { return 0.27 }
 func (f *FakeFileHeader) H100() float64 { return 0.70 }
 func (f *FakeFileHeader) L() float64 { return 100.0 }

@@ -36,6 +36,11 @@ type Buffer struct {
 	
 }
 
+// NewBuffer creates a buffer object which can read files with the given Header.
+func NewBuffer(hd Header) (*Buffer, error) {
+	return newBuffer(hd.ByteOrder(), hd.Names(), hd.Types())
+}
+
 // newBuffer returns a Buffer object that can read a set of variables with the
 // specified types ("f32", "f64", "u32", "u64", "v32", "v64" for floats, uints,
 // and 3-vectors with 32- and 64-bit widths, respectively). The byte order of
