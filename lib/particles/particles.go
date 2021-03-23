@@ -30,6 +30,9 @@ type Field interface {
 // Type assertions
 var (
 	_ Field = &Uint32{ }
+	_ Field = &Uint64{ }
+	_ Field = &Float32{ }
+	_ Field = &Float64{ }
 )
 
 // Uint32 implements the Field interface for []uint32 data. See the Field
@@ -60,6 +63,211 @@ func (x *Uint32) Transfer(dest Particles, from, to []int) error {
 	destData, ok := destField.Data().([]uint32)
 	if !ok {
 		return fmt.Errorf("Field '%s' in destination Particles object does not have []uint32 type, as expected.", x.name)
+	}
+
+	if len(from) != len(to) {
+		return fmt.Errorf("'from' index array has length %d, but 'to' has length %d.", len(from), len(to))
+	}
+	
+	for i := range from {
+		destData[to[i]] = x.data[from[i]]
+	}
+
+	return nil
+}
+
+// Uint64 implements the Field interface for []uint32 data. See the Field
+// interface for documentation of this struct's methods.
+type Uint64 struct {
+	name string
+	data []uint64
+}
+
+// NewUint64 creates a field with a given name assoicated with a given array.
+func NewUint64(name string, x []uint64) *Uint64 {
+	return &Uint64{ name, x }
+}
+
+func (x *Uint64) Len() int { return len(x.data) }
+func (x *Uint64) Data() interface{} { return x.data }
+
+func (x *Uint64) CreateDestination(p Particles, n int) {
+	p[x.name] = NewUint64(x.name, make([]uint64, n))
+}
+
+func (x *Uint64) Transfer(dest Particles, from, to []int) error {	
+	destField, ok := dest[x.name]
+	if !ok {
+		return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.name)
+	}
+		
+	destData, ok := destField.Data().([]uint64)
+	if !ok {
+		return fmt.Errorf("Field '%s' in destination Particles object does not have []uint64 type, as expected.", x.name)
+	}
+
+	if len(from) != len(to) {
+		return fmt.Errorf("'from' index array has length %d, but 'to' has length %d.", len(from), len(to))
+	}
+	
+	for i := range from {
+		destData[to[i]] = x.data[from[i]]
+	}
+
+	return nil
+}
+
+// Float32 implements the Field interface for []float32 data. See the Field
+// interface for documentation of this struct's methods.
+type Float32 struct {
+	name string
+	data []float32
+}
+
+// NewFloat32 creates a field with a given name assoicated with a given array.
+func NewFloat32(name string, x []float32) *Float32 {
+	return &Float32{ name, x }
+}
+
+func (x *Float32) Len() int { return len(x.data) }
+func (x *Float32) Data() interface{} { return x.data }
+
+func (x *Float32) CreateDestination(p Particles, n int) {
+	p[x.name] = NewFloat32(x.name, make([]float32, n))
+}
+
+func (x *Float32) Transfer(dest Particles, from, to []int) error {	
+	destField, ok := dest[x.name]
+	if !ok {
+		return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.name)
+	}
+		
+	destData, ok := destField.Data().([]float32)
+	if !ok {
+		return fmt.Errorf("Field '%s' in destination Particles object does not have []float32 type, as expected.", x.name)
+	}
+
+	if len(from) != len(to) {
+		return fmt.Errorf("'from' index array has length %d, but 'to' has length %d.", len(from), len(to))
+	}
+	
+	for i := range from {
+		destData[to[i]] = x.data[from[i]]
+	}
+
+	return nil
+}
+
+// Float64 implements the Field interface for []float32 data. See the Field
+// interface for documentation of this struct's methods.
+type Float64 struct {
+	name string
+	data []float64
+}
+
+// NewFloat64 creates a field with a given name assoicated with a given array.
+func NewFloat64(name string, x []float64) *Float64 {
+	return &Float64{ name, x }
+}
+
+func (x *Float64) Len() int { return len(x.data) }
+func (x *Float64) Data() interface{} { return x.data }
+
+func (x *Float64) CreateDestination(p Particles, n int) {
+	p[x.name] = NewFloat64(x.name, make([]float64, n))
+}
+
+func (x *Float64) Transfer(dest Particles, from, to []int) error {	
+	destField, ok := dest[x.name]
+	if !ok {
+		return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.name)
+	}
+		
+	destData, ok := destField.Data().([]float64)
+	if !ok {
+		return fmt.Errorf("Field '%s' in destination Particles object does not have []float64 type, as expected.", x.name)
+	}
+
+	if len(from) != len(to) {
+		return fmt.Errorf("'from' index array has length %d, but 'to' has length %d.", len(from), len(to))
+	}
+	
+	for i := range from {
+		destData[to[i]] = x.data[from[i]]
+	}
+
+	return nil
+}
+
+// Vec32 implements the Field interface for [][3]float32 data. See the Field
+// interface for documentation of this struct's methods.
+type Vec32 struct {
+	name string
+	data [][3]float32
+}
+
+// NewVec32 creates a field with a given name assoicated with a given array.
+func NewVec32(name string, x [][3]float32) *Vec32 {
+	return &Vec32{ name, x }
+}
+
+func (x *Vec32) Len() int { return len(x.data) }
+func (x *Vec32) Data() interface{} { return x.data }
+
+func (x *Vec32) CreateDestination(p Particles, n int) {
+	p[x.name] = NewVec32(x.name, make([][3]float32, n))
+}
+
+func (x *Vec32) Transfer(dest Particles, from, to []int) error {	
+	destField, ok := dest[x.name]
+	if !ok {
+		return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.name)
+	}
+		
+	destData, ok := destField.Data().([][3]float32)
+	if !ok {
+		return fmt.Errorf("Field '%s' in destination Particles object does not have [][3]float32 type, as expected.", x.name)
+	}
+
+	if len(from) != len(to) {
+		return fmt.Errorf("'from' index array has length %d, but 'to' has length %d.", len(from), len(to))
+	}
+	
+	for i := range from {
+		destData[to[i]] = x.data[from[i]]
+	}
+
+	return nil
+}
+
+// Vec64 implements the Field interface for [][3]float32 data. See the Field
+// interface for documentation of this struct's methods.
+type Vec64 struct {
+	name string
+	data [][3]float64
+}
+
+// NewVec64 creates a field with a given name assoicated with a given array.
+func NewVec64(name string, x [][3]float64) *Vec64 {
+	return &Vec64{ name, x }
+}
+
+func (x *Vec64) Len() int { return len(x.data) }
+func (x *Vec64) Data() interface{} { return x.data }
+
+func (x *Vec64) CreateDestination(p Particles, n int) {
+	p[x.name] = NewVec64(x.name, make([][3]float64, n))
+}
+
+func (x *Vec64) Transfer(dest Particles, from, to []int) error {	
+	destField, ok := dest[x.name]
+	if !ok {
+		return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.name)
+	}
+		
+	destData, ok := destField.Data().([][3]float64)
+	if !ok {
+		return fmt.Errorf("Field '%s' in destination Particles object does not have [][3]float64 type, as expected.", x.name)
 	}
 
 	if len(from) != len(to) {
