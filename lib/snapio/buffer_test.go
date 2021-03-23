@@ -6,6 +6,8 @@ import (
 	
 	"encoding/binary"
 	"testing"
+
+	"github.com/phil-mansfield/guppy/lib/eq"
 )
 
 func TestNewBuffer(t *testing.T) {
@@ -123,42 +125,42 @@ func TestReadPrimitive(t *testing.T) {
 		
 		rd := fakeReader(order, f32)
 		buf.readPrimitive(rd, f32Out)
-		if !float32sEq(f32, f32Out) {
+		if !eq.Float32s(f32, f32Out) {
 			t.Errorf("Wrote f32 %f with byteOrder = %d, read %f.",
 				f32, order, f32Out)
 		}
 
 		rd = fakeReader(order, f64)
 		buf.readPrimitive(rd, f64Out)
-		if !float64sEq(f64, f64Out) {
+		if !eq.Float64s(f64, f64Out) {
 			t.Errorf("Wrote f64 %f with byteOrder = %d, read %f.",
 				f64, order, f64Out)
 		}
 
 		rd = fakeReader(order, v32)
 		buf.readPrimitive(rd, v32Out)
-		if !vec32sEq(v32, v32Out) {
+		if !eq.Vec32s(v32, v32Out) {
 			t.Errorf("Wrote v32 %f with byteOrder = %d, read %f.",
 				v32, order, v32Out)
 		}
 
 		rd = fakeReader(order, v64)
 		buf.readPrimitive(rd, v64Out)
-		if !vec64sEq(v64, v64Out) {
+		if !eq.Vec64s(v64, v64Out) {
 			t.Errorf("Wrote v64 %f with byteOrder = %d, read %f.",
 				v64, order, v64Out)
 		}
 
 		rd = fakeReader(order, u32)
 		buf.readPrimitive(rd, u32Out)
-		if !uint32sEq(u32, u32Out) {
+		if !eq.Uint32s(u32, u32Out) {
 			t.Errorf("Wrote u32 %d with byteOrder = %d, read %d.",
 				u32, order, u32Out)
 		}
 
 		rd = fakeReader(order, u64)
 		buf.readPrimitive(rd, u64Out)
-		if !uint64sEq(u64, u64Out) {
+		if !eq.Uint64s(u64, u64Out) {
 			t.Errorf("Wrote u64 %d with byteOrder = %d, read %d.",
 				u64, order, u64Out)
 		}
@@ -240,10 +242,10 @@ func TestRead(t *testing.T) {
 	}
 		
 	x1Exp, x2Exp := []uint32{ 0, 1 }, []uint32{ 2, 3 }
-	if !uint32sEq(x2Exp, x2) {
+	if !eq.Uint32s(x2Exp, x2) {
 		t.Errorf("Expected x1 = %d, got %d.", x1Exp, x1)
 	}
-	if !uint32sEq(x2Exp, x2) {
+	if !eq.Uint32s(x2Exp, x2) {
 		t.Errorf("Expected x1 = %d, got %d.", x2Exp, x2)
 	}
 
@@ -270,10 +272,10 @@ func TestRead(t *testing.T) {
 	}
 	
 	x1Exp, x2Exp = []uint32{ 4, 5, 6 }, []uint32{ 7, 8, 9 }
-	if !uint32sEq(x2Exp, x2) {
+	if !eq.Uint32s(x2Exp, x2) {
 		t.Errorf("Expected x1 = %d, got %d.", x1Exp, x1)
 	}
-	if !uint32sEq(x2Exp, x2) {
+	if !eq.Uint32s(x2Exp, x2) {
 		t.Errorf("Expected x1 = %d, got %d.", x2Exp, x2)
 	}
 
@@ -301,56 +303,4 @@ func fakeReader(order binary.ByteOrder, x interface{}) io.Reader {
 	rd := bytes.NewReader(b)
 	return rd
 	
-}
-
-///////////////////////
-// Utility functions //
-///////////////////////
-
-func float32sEq(x, y []float32) bool {
-	if len(x) != len(y) { return false }
-	for i := range x {
-		if x[i] != y[i] { return false }
-	}
-	return true
-}
-
-func float64sEq(x, y []float64) bool {
-	if len(x) != len(y) { return false }
-	for i := range x {
-		if x[i] != y[i] { return false }
-	}
-	return true
-}
-
-func uint32sEq(x, y []uint32) bool {
-	if len(x) != len(y) { return false }
-	for i := range x {
-		if x[i] != y[i] { return false }
-	}
-	return true
-}
-
-func uint64sEq(x, y []uint64) bool {
-	if len(x) != len(y) { return false }
-	for i := range x {
-		if x[i] != y[i] { return false }
-	}
-	return true
-}
-
-func vec32sEq(x, y [][3]float32) bool {
-	if len(x) != len(y) { return false }
-	for i := range x {
-		if x[i] != y[i] { return false }
-	}
-	return true
-}
-
-func vec64sEq(x, y [][3]float64) bool {
-	if len(x) != len(y) { return false }
-	for i := range x {
-		if x[i] != y[i] { return false }
-	}
-	return true
 }
