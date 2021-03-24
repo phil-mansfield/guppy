@@ -202,80 +202,98 @@ func (x *Float64) Transfer(dest Particles, from, to []int) error {
 // Vec32 implements the Field interface for [][3]float32 data. See the Field
 // interface for documentation of this struct's methods.
 type Vec32 struct {
-	name string
+	dimNames [3]string
 	data [][3]float32
 }
 
 // NewVec32 creates a field with a given name assoicated with a given array.
 func NewVec32(name string, x [][3]float32) *Vec32 {
-	return &Vec32{ name, x }
+	dimNames := [3]string{ }
+	for dim := range dimNames {
+		dimNames[dim] = fmt.Sprintf("%s[%d]", name, dim)
+	}
+	return &Vec32{ dimNames, x }
 }
 
 func (x *Vec32) Len() int { return len(x.data) }
 func (x *Vec32) Data() interface{} { return x.data }
 
 func (x *Vec32) CreateDestination(p Particles, n int) {
-	p[x.name] = NewVec32(x.name, make([][3]float32, n))
+	for dim := range x.dimNames {
+		p[x.dimNames[dim]] = NewFloat32(x.dimNames[dim], make([]float32, n))
+	}
 }
 
-func (x *Vec32) Transfer(dest Particles, from, to []int) error {	
-	destField, ok := dest[x.name]
-	if !ok {
-		return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.name)
-	}
-		
-	destData, ok := destField.Data().([][3]float32)
-	if !ok {
-		return fmt.Errorf("Field '%s' in destination Particles object does not have [][3]float32 type, as expected.", x.name)
-	}
-
+func (x *Vec32) Transfer(dest Particles, from, to []int) error {
 	if len(from) != len(to) {
 		return fmt.Errorf("'from' index array has length %d, but 'to' has length %d.", len(from), len(to))
 	}
 	
-	for i := range from {
-		destData[to[i]] = x.data[from[i]]
+	for dim := range x.dimNames {
+		destField, ok := dest[x.dimNames[dim]]
+		if !ok {
+			return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.dimNames[dim])
+		}
+		
+		destData, ok := destField.Data().([]float32)
+		if !ok {
+			return fmt.Errorf("Field '%s' in destination Particles object does not have []float32 type, as expected.", x.dimNames[dim])
+		}
+
+
+		for i := range from {
+			destData[to[i]] = x.data[from[i]][dim]
+		}
 	}
 
 	return nil
 }
 
-// Vec64 implements the Field interface for [][3]float32 data. See the Field
+// Vec32 implements the Field interface for [][3]float32 data. See the Field
 // interface for documentation of this struct's methods.
-type Vec64 struct {
-	name string
-	data [][3]float64
+type Vec32 struct {
+	dimNames [3]string
+	data [][3]float32
 }
 
 // NewVec64 creates a field with a given name assoicated with a given array.
 func NewVec64(name string, x [][3]float64) *Vec64 {
-	return &Vec64{ name, x }
+	dimNames := [3]string{ }
+	for dim := range dimNames {
+		dimNames[dim] = fmt.Sprintf("%s[%d]", name, dim)
+	}
+	return &Vec64{ dimNames, x }
 }
 
 func (x *Vec64) Len() int { return len(x.data) }
 func (x *Vec64) Data() interface{} { return x.data }
 
 func (x *Vec64) CreateDestination(p Particles, n int) {
-	p[x.name] = NewVec64(x.name, make([][3]float64, n))
+	for dim := range x.dimNames {
+		p[x.dimNames[dim]] = NewFloat64(x.dimNames[dim], make([]float64, n))
+	}
 }
 
-func (x *Vec64) Transfer(dest Particles, from, to []int) error {	
-	destField, ok := dest[x.name]
-	if !ok {
-		return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.name)
-	}
-		
-	destData, ok := destField.Data().([][3]float64)
-	if !ok {
-		return fmt.Errorf("Field '%s' in destination Particles object does not have [][3]float64 type, as expected.", x.name)
-	}
-
+func (x *Vec64) Transfer(dest Particles, from, to []int) error {
 	if len(from) != len(to) {
 		return fmt.Errorf("'from' index array has length %d, but 'to' has length %d.", len(from), len(to))
 	}
 	
-	for i := range from {
-		destData[to[i]] = x.data[from[i]]
+	for dim := range x.dimNames {
+		destField, ok := dest[x.dimNames[dim]]
+		if !ok {
+			return fmt.Errorf("Destination Particles object does not contain the field '%s'.", x.dimNames[dim])
+		}
+		
+		destData, ok := destField.Data().([]float64)
+		if !ok {
+			return fmt.Errorf("Field '%s' in destination Particles object does not have []float64 type, as expected.", x.dimNames[dim])
+		}
+
+
+		for i := range from {
+			destData[to[i]] = x.data[from[i]][dim]
+		}
 	}
 
 	return nil
