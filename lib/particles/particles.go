@@ -1,4 +1,5 @@
-/*package particles contains functions for */
+/*package particles contains functions for manipulating particles with generic
+fields and ID-orderings.*/
 package particles
 
 /* This file contains functions for managing particles and their fields. */
@@ -249,11 +250,11 @@ func (x *Vec32) Transfer(dest Particles, from, to []int) error {
 	return nil
 }
 
-// Vec32 implements the Field interface for [][3]float32 data. See the Field
+// Vec64 implements the Field interface for [][3]float64 data. See the Field
 // interface for documentation of this struct's methods.
-type Vec32 struct {
+type Vec64 struct {
 	dimNames [3]string
-	data [][3]float32
+	data [][3]float64
 }
 
 // NewVec64 creates a field with a given name assoicated with a given array.
