@@ -1,21 +1,5 @@
 package particles
 
-// IndexVecToIndex converts a 3-index to an x-major index in a flat array
-// representing a 3d array with dimensions span.
-func IndexVecToIndex(span, vec [3]int) int {
-	return vec[0] + vec[1]*span[0] + vec[2]*span[0]*span[1]
-}
-
-// IndexVecToIndex converts an x-major index in a flat array representing a 3d
-// array with dimensions span into a 3-index into that array.
-func IndexToIndexVec(span [3]int, i int) [3]int {
-	return [3]int{
-		i % span[0],
-		(i / span[0]) % span[1],
-		i / (span[0]*span[1]),
-	}
-}
-
 // IDOrder is an interface for mapping paritcles IDs to their 3D index into the
 // simulation grid. This interface also supports mutli-reoslution simulations
 // which are split up into "levels" of fixed resolution.
