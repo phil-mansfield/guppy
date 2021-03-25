@@ -2,13 +2,13 @@ package particles
 
 // IndexVecToIndex converts a 3-index to an x-major index in a flat array
 // representing a 3d array with dimensions span.
-func IndexVecToIndex(vec, span [3]int) int {
+func IndexVecToIndex(span, vec [3]int) int {
 	return vec[0] + vec[1]*span[0] + vec[2]*span[0]*span[1]
 }
 
 // IndexVecToIndex converts an x-major index in a flat array representing a 3d
 // array with dimensions span into a 3-index into that array.
-func IndexToIndexVec(i int, span [3]int) [3]int {
+func IndexToIndexVec(span [3]int, i int) [3]int {
 	return [3]int{
 		i % span[0],
 		(i / span[0]) % span[1],
