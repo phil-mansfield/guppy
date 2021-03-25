@@ -34,7 +34,25 @@ var (
 	_ Field = &Uint64{ }
 	_ Field = &Float32{ }
 	_ Field = &Float64{ }
+	_ Field = &Vec32{ }
+	_ Field = &Vec64{ }
 )
+
+// NewGenericField creates the appropriate field for a given array. The
+// supported types []uint32, []uint64, []float32, []float64, [][3]float32,
+// [][3]float64.
+func NewGenericField(name string, x interface{}) (Field, error) {
+	switch xx := x.(type) {
+	case []uint32: return NewUint32(name, xx), nil
+	case []uint64: return NewUint64(name, xx), nil
+	case []float32: return NewFloat32(name, xx), nil
+	case []float64: return NewFloat64(name, xx), nil
+	case [][3]float32: return NewVec32(name, xx), nil
+	case [][3]float64: return NewVec64(name, xx), nil
+	default:
+		return nil, fmt.Errorf("NewField called on unsupported array type.")
+	}
+}
 
 // Uint32 implements the Field interface for []uint32 data. See the Field
 // interface for documentation of this struct's methods.
