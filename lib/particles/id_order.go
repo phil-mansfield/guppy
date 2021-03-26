@@ -18,6 +18,9 @@ type IDOrder interface {
 	// LevelSpan returns the 3-index representing the span of a given level in
 	// units of that resolution level.
 	LevelSpan(level int) [3]int
+
+	// Ntot returns the total number of particles spanned by IDOrder.
+	NTot() int
 }
 
 // Type assertions
@@ -64,3 +67,4 @@ func (g *ZMajorUnigrid) LevelSpan(level int) [3]int {
 	return [3]int{ g.n, g.n, g.n }
 }
 
+func (g *ZMajorUnigrid) NTot() int { return g.n*g.n*g.n }

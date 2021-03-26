@@ -123,10 +123,10 @@ type SplitScheme interface {
 	Indices(id []uint64, from, to [][]int) (fromOut, toOut [][]int, err error)
 }
 
-// UniformSplitUnigrid is a SplitScheme which splits a uniform-density grid into
+// EqualSplitUnigrid is a SplitScheme which splits a uniform-density grid into
 // equal-sized sub-cubes. See the SplitScheme documentation for method
 // descriptions.
-type UniformSplitUnigrid struct {
+type EqualSplitUnigrid struct {
 	nAll int // Number of particles on one side for the full simulation.
 	nSub int // Number of particles on one side for a sub-cube
 	nCube int // Number of sub-cubes on one side.
@@ -135,18 +135,18 @@ type UniformSplitUnigrid struct {
 	
 }
 
-// NewUniformSplitUnigrid splits a simulation up into subgrids with nCube
+// NewEqualSplitUnigrid splits a simulation up into subgrids with nCube
 // cubes on one side. vars gives the names of the fields to transfer over.
-func NewUniformSplitUnigrid(
+func NewEqualSplitUnigrid(
 	hd snapio.Header, order IDOrder, nCube int, names []string,
-) (*UniformSplitUnigrid, error) {
+) (*EqualSplitUnigrid, error) {
 	nTot := hd.NTot()
 	nAll := round(math.Pow(float64(nTot), 1.0/3))
 	if nAll*nAll*nAll != nTot {
 		return nil, fmt.Errorf("The total number of particles in the simulation is %d, but uniform grids must be perfect cubes.", nTot)
-	}
-
-	if nAll % nCube != 0 {
+	} else if order.NTot() != nTot {
+		return nil, fmt.Errorf("The number of particles in the files is %d, but the simulation is supposed to have %d particles.", nTot, order.NTot())
+	}else if nAll % nCube != 0 {
 		return nil, fmt.Errorf("The number of sub-cubes, %d^3, doesn't evenly divide the number of particles, %d^3", nCube, nAll)
 	}
 	nSub := nAll / nCube
@@ -156,16 +156,17 @@ func NewUniformSplitUnigrid(
 	
 NamesLoop:
 	for i := range names {
+		if names[i] == "id" { continue } // Don't copy over IDs.
 		for j := range fullNames {
 			if names[i] == fullNames[j] {
 				types[i] = fullTypes[j]
 				continue NamesLoop
 			}
-			return nil, fmt.Errorf("Could not read the variable '%s', not variable was mapped to '%s'", names[i], names[i])
+			return nil, fmt.Errorf("Could not read the variable '%s', no variable was mapped to '%s'", names[i], names[i])
 		}
 	}
 	
-	return &UniformSplitUnigrid{ nAll, nSub, nCube, names, types, order }, nil
+	return &EqualSplitUnigrid{ nAll, nSub, nCube, names, types, order }, nil
 	
 }
 
@@ -179,7 +180,7 @@ func round(x float64) int {
 	}
 }
 
-func (g *UniformSplitUnigrid) Buffers() []Particles {
+func (g *EqualSplitUnigrid) Buffers() []Particles {
 	// Create blank Fields objects for each variable.
 	srcFields := Particles{ }
 	for i := range g.names {
@@ -207,7 +208,7 @@ func (g *UniformSplitUnigrid) Buffers() []Particles {
 	return p
 }
 
-func (g *UniformSplitUnigrid) Indices(
+func (g *EqualSplitUnigrid) Indices(
 	id []uint64, from, to [][]int,
 ) (fromOut, toOut [][]int, err error) {
 	// Refresh 
@@ -221,7 +222,7 @@ func (g *UniformSplitUnigrid) Indices(
 	for i, x := range id {
 		vec, level := g.order.IDToIndex(x)
 		if level != 0 {
-			return nil, nil, fmt.Errorf("SplitScheme is UniformSplitUnigrid, but ID %d, %x, has level %d instead of 0",
+			return nil, nil, fmt.Errorf("SplitScheme is EqualSplitUnigrid, but ID %d, %x, has level %d instead of 0",
 				i, x, level)
 		}
 		
