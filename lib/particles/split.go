@@ -152,22 +152,32 @@ func NewEqualSplitUnigrid(
 	nSub := nAll / nCube
 
 	fullNames, fullTypes := hd.Names(), hd.Types()
+	names = removeString(names, "id") // DOn't copy over IDs.
 	types := make([]string, len(names))
 	
 NamesLoop:
 	for i := range names {
-		if names[i] == "id" { continue } // Don't copy over IDs.
 		for j := range fullNames {
 			if names[i] == fullNames[j] {
 				types[i] = fullTypes[j]
 				continue NamesLoop
 			}
-			return nil, fmt.Errorf("Could not read the variable '%s', no variable was mapped to '%s'", names[i], names[i])
 		}
+		return nil, fmt.Errorf("Could not read the variable '%s', no variable was mapped to '%s'", names[i], names[i])
+
 	}
 	
 	return &EqualSplitUnigrid{ nAll, nSub, nCube, names, types, order }, nil
-	
+}
+
+func removeString(x []string, x0 string) []string {
+	out := []string{ }
+	for i := range x {
+		if x[i] != x0 {
+			out = append(out, x[i])
+		}
+	}
+	return out
 }
 
 // round rounds a float to the nearest integer.
@@ -212,11 +222,11 @@ func (g *EqualSplitUnigrid) Indices(
 	id []uint64, from, to [][]int,
 ) (fromOut, toOut [][]int, err error) {
 	// Refresh 
-	for i := range fromOut {
+	for i := range from {
 		from[i] = from[i][:0]
 		to[i] = to[i][:0]
 	}
-
+	
 	// Index vectors.
 	iCube, iSub := [3]int{ }, [3]int{ }
 	for i, x := range id {
@@ -233,13 +243,13 @@ func (g *EqualSplitUnigrid) Indices(
 			}
 			iCube[k] = vec[k] / g.nSub
 			iSub[k] = vec[k] - iCube[k]*g.nSub
-
-			jCube := iCube[0] + iCube[1]*g.nCube + iCube[2]*g.nCube*g.nCube
-			jSub := iSub[0] + iSub[1]*g.nSub + iSub[2]*g.nSub*g.nSub
-
-			from[jCube] = append(from[jCube], i)
-			to[jCube] = append(to[jCube], jSub)
 		}
+		
+		jCube := iCube[0] + iCube[1]*g.nCube + iCube[2]*g.nCube*g.nCube
+		jSub := iSub[0] + iSub[1]*g.nSub + iSub[2]*g.nSub*g.nSub
+
+		from[jCube] = append(from[jCube], i)
+		to[jCube] = append(to[jCube], jSub)
 	}
 
 	return from, to, nil

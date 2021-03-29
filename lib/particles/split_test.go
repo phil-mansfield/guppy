@@ -32,7 +32,7 @@ func TestNewEqualSplitUnigrid(t *testing.T) {
 	}
 	values :=[]interface{}{
 		[]float32{1.0}, []float64{2.0}, []uint32{3}, []uint64{4},
-		[][3]float32{{5.0, 5.0, 5.0}}, [][3]float32{{6.0, 6.0, 6.0}},
+		[][3]float32{{5.0, 5.0, 5.0}}, [][3]float64{{6.0, 6.0, 6.0}},
 		[]uint32{7},
 	}
 	binOrder := binary.LittleEndian
@@ -91,13 +91,12 @@ func TestNewEqualSplitUnigrid(t *testing.T) {
 
 	types := make([]string, len(names) - 1)
 	for i := range types {
-		types[i] = names[i][len(types)-3:]
+		types[i] = names[i][len(names[i])-3:]
 	}
 	
 	g, err := NewEqualSplitUnigrid(hd, order, 2, names)
 	if err != nil {
-		t.Errorf("Initialization of EqualSplitUnigrid with names = %s failed",
-			names)
+		t.Errorf("Initialization of EqualSplitUnigrid with names = %s failed with error '%s', but it should have succeeded", names, err.Error())
 	} else if g.order != order {
 		t.Errorf("Unigrid's IDOrder changed form input order.")
 	} else if g.nAll != 10 {
@@ -119,16 +118,11 @@ func TestEqualSplitUnigridBuffers(t *testing.T) {
 	}
 	values :=[]interface{}{
 		[]float32{1.0}, []float64{2.0}, []uint32{3}, []uint64{4},
-		[][3]float32{{5.0, 5.0, 5.0}}, [][3]float32{{6.0, 6.0, 6.0}},
+		[][3]float32{{5.0, 5.0, 5.0}}, [][3]float64{{6.0, 6.0, 6.0}},
 		[]uint32{7},
 	}
 	binOrder := binary.LittleEndian
 	order := NewZMajorUnigrid(10)
-
-	types := make([]string, len(names) - 1)
-	for i := range types {
-		types[i] = names[i][len(types)-3:]
-	}
 
 	f, err := snapio.NewFakeFile(names, values, 1000, binOrder)
 	if err != nil {
@@ -153,11 +147,26 @@ func TestEqualSplitUnigridBuffers(t *testing.T) {
 		t.Errorf("Expected %d Particles{ } arrays, got %d", 8, len(p))
 	}
 
-	for i := range p {
-		
-		for j := range types {
-			name := names[j]
-			field := p[i][name]
+	pNames := []string{
+		"x_f32", "x_f64", "x_u32", "x_u64",
+		"x_v32[0]", "x_v32[1]", "x_v32[2]",
+		"x_v64[0]", "x_v64[1]", "x_v64[2]",
+	}
+	pTypes := []string{
+		"f32", "f64", "u32", "u64",
+		"f32", "f32", "f32",
+		"f64", "f64", "f64",
+	}
+
+	
+	for i := range p {		
+		for j := range pTypes {
+			name := pNames[j]
+			field, ok := p[i][name]
+			if !ok {
+				t.Errorf("field '%s' missing from p[%d]", name, i)
+				continue
+			}
 			
 			if field.Len() != 125 {
 				t.Errorf("field '%s' has length %d, but expected %d.",
@@ -166,39 +175,180 @@ func TestEqualSplitUnigridBuffers(t *testing.T) {
 
 			switch field.(type) {
 			case *Float32:
-				if types[j] != "f32" {
+				if pTypes[j] != "f32" {
 					t.Errorf("Field '%s' has type '%s', but field is Float32",
-						name, types[j])
+						name, pTypes[j])
 				}
 			case *Float64:
-				if types[j] != "f64" {
+				if pTypes[j] != "f64" {
 					t.Errorf("Field '%s' has type '%s', but field is Float64",
-						name, types[j])
+						name, pTypes[j])
 				}
 			case *Uint32:
-				if types[j] != "u32" {
+				if pTypes[j] != "u32" {
 					t.Errorf("Field '%s' has type '%s', but field is Uint32",
-						name, types[j])
+						name, pTypes[j])
 				}
 			case *Uint64:
-				if types[j] != "u64" {
+				if pTypes[j] != "u64" {
 					t.Errorf("Field '%s' has type '%s', but field is Uint64",
-						name, types[j])
+						name, pTypes[j])
 				}
 			case *Vec32:
-				if types[j] != "v32" {
+				if pTypes[j] != "v32" {
 					t.Errorf("Field '%s' has type '%s', but field is Vec32",
-						name, types[j])
+						name, pTypes[j])
 				}
 			case *Vec64:
-				if types[j] != "v64" {
+				if pTypes[j] != "v64" {
 					t.Errorf("Field '%s' has type '%s', but field is Float32",
-						name, types[j])
+						name, pTypes[j])
 				}
 			default:
 				t.Errorf("Field '%s' has type '%s', but field is unknown.",
-						name, types[j])
+						name, pTypes[j])
 			}
 		}
 	}
+}
+
+func TestEqualSplitUnigrid(t *testing.T) {
+	names := []string{
+		"x_f32", "x_f64", "x_u32", "x_u64", "x_v32", "x_v64", "id",
+	}
+	values :=[]interface{}{
+		[]float32{1.0}, []float64{2.0}, []uint32{3}, []uint64{4},
+		[][3]float32{{5.0, 5.0, 5.0}}, [][3]float64{{6.0, 6.0, 6.0}},
+		[]uint32{7},
+	}
+	binOrder := binary.LittleEndian
+	order := NewZMajorUnigrid(10)
+
+	f, err := snapio.NewFakeFile(names, values, 1000, binOrder)
+	if err != nil {
+		t.Errorf(err.Error())
+		return
+	}
+	
+	hd, err := f.ReadHeader()
+	if err != nil {
+		t.Errorf(err.Error())
+		return
+	}
+
+	g, err := NewEqualSplitUnigrid(hd, order, 2, names)
+	if err != nil {
+		t.Errorf(err.Error())
+		return
+	}
+
+	tests := []struct{
+		id []uint64
+		from, to [][]int
+		valid bool
+	} {
+		{
+			[]uint64{ },
+			[][]int{ {}, {}, {}, {}, {}, {}, {}, {} },
+			[][]int{ {}, {}, {}, {}, {}, {}, {}, {} },
+			true,
+		},
+		{
+			[]uint64{ 0 },
+			[][]int{ {0}, {}, {}, {}, {}, {}, {}, {} },
+			[][]int{ {0}, {}, {}, {}, {}, {}, {}, {} },
+			true,
+		},
+		{
+			[]uint64{ 1 },
+			[][]int{ {0}, {}, {}, {}, {}, {}, {}, {} },
+			[][]int{ {25}, {}, {}, {}, {}, {}, {}, {} },
+			true,
+		},
+		{
+			[]uint64{ 100 },
+			[][]int{ {0}, {}, {}, {}, {}, {}, {}, {} },
+			[][]int{ {1}, {}, {}, {}, {}, {}, {}, {} },
+			true,
+		},
+		{
+			[]uint64{ 500 },
+			[][]int{ {}, {0}, {}, {}, {}, {}, {}, {} },
+			[][]int{ {}, {0}, {}, {}, {}, {}, {}, {} },
+			true,
+		},
+		{
+			[]uint64{600, 500, 501, 510},
+			[][]int{ {}, {0, 1, 2, 3}, {}, {}, {}, {}, {}, {} },
+			[][]int{ {}, {1, 0, 25, 5}, {}, {}, {}, {}, {}, {} },
+			true,
+		},
+		{
+			[]uint64{600, 500, 501, 510},
+			[][]int{ {}, {0, 1, 2, 3}, {}, {}, {}, {}, {}, {} },
+			[][]int{ {}, {1, 0, 25, 5}, {}, {}, {}, {}, {}, {} },
+			true,
+		},
+		{
+			[]uint64{0, 5},
+			[][]int{ {0}, {}, {}, {}, {1}, {}, {}, {} },
+			[][]int{ {0}, {}, {}, {}, {0}, {}, {}, {} },
+			true,
+		},
+		{
+			[]uint64{0, 5, 50, 500, 555, 556, 565, 655},
+			[][]int{ {0}, {3}, {2}, {}, {1}, {}, {}, {4, 5, 6, 7} },
+			[][]int{ {0}, {0}, {0}, {}, {0}, {}, {}, {0, 25, 5, 1} },
+			true,
+		},
+	}
+
+	for i := range tests {
+		var err error
+		from, to := startingIndexArray(8)
+		from, to, err = g.Indices(tests[i].id, from, to)
+		
+		if tests[i].valid && err != nil {
+			t.Errorf("%d) Expected valid Indices() call, but got error '%s'.",
+				i, err.Error())
+			return
+		} else if !tests[i].valid && err == nil {
+			t.Errorf("%d) Expected invalid Indices() call, but got no error.",
+				i)
+			return
+		}
+		
+		if len(from) != 8 || len(to) != 8 {
+			t.Errorf(
+				"Length of from and to were %d and %d, but expected 8 and 8.",
+				len(from), len(to),
+			)
+		}
+
+		for j := range from {
+			if !eq.Ints(from[j], tests[i].from[j]) {
+				t.Errorf("%d) Expected from[%d] = %d, got %d.",
+					i, j, tests[i].from[j], from[j])
+			}
+			if !eq.Ints(to[j], tests[i].to[j]) {
+				t.Errorf("%d) Expected to[%d] = %d, got %d.",
+					i, j, tests[i].to[j], to[j])
+			}
+		}
+	}
+}
+
+// Create from and to arrays with different lengths and random junk in them.
+func startingIndexArray(n int) (from, to [][]int) {
+	from, to = make([][]int, n), make([][]int, n)
+	k := 0
+	for i := range from {
+		for j := 0; j < i; j++ {
+			from[i] = append(from[i], k)
+			to[i] = append(to[i], k)
+			k++
+		}
+	}
+
+	return from, to
 }
