@@ -20,7 +20,10 @@ func Split(
 	if len(files) == 0 {
 		return nil, fmt.Errorf("Zero files were specified."), false
 	}
-
+	
+	// If the user doesn't suppy "id", add it for them.
+	if !stringsContain(vars, "id") { vars = stringsCopyAppend(vars, "id") }
+	
 	// Set up shared header and buffer.
 	hd, err := files[0].ReadHeader()
 	if err != nil { return nil, err, true }
@@ -75,16 +78,33 @@ func Split(
 	return out, nil, false
 }
 
+func stringsContain(x []string, x0 string) bool {
+	for i := range x {
+		if x[i] == x0 {
+			return true
+		}
+	}
+	return false
+}
+
+func stringsCopyAppend(x []string, x0 string) []string {
+	out := make([]string, len(x) + 1)
+	for i := range x { out[i] = x[i] }
+	out[len(x)] = x0
+	return out
+}
+
 // StandardizeIDs standardizes an array of []uint32 or []uint64 IDs to []uint64.
 // If the input is []uint64, the array is just returned. If the input is
 // []uint32, the output is written to a buffer. That buffer will be trimmed
 // or expanded to the correct size.
 func standardizeIDs(id interface{}, buf []uint64) ([]uint64, error) {
+	fmt.Printf("")
 	switch x := id.(type) {
 	case []uint32:
-		if n := cap(buf) - len(x); n > 0 {
+		if n := len(x) - cap(buf); n > 0 {
+			buf = buf[:cap(buf)]
 			buf = append(buf, make([]uint64, n)...)
-			
 		}
 		buf = buf[:len(x)]
 

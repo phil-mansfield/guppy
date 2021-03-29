@@ -352,3 +352,75 @@ func startingIndexArray(n int) (from, to [][]int) {
 
 	return from, to
 }
+
+func TestSplit(t *testing.T) {
+	data := []struct{
+		id []uint32
+		x []float32
+	} {
+		{
+			[]uint32{ 4, 7, 2 },
+			[]float32{ 1, 7, 2 },	
+		},
+		{
+			[]uint32{ 0 },
+			[]float32{ 0 },	
+		},
+		{
+			[]uint32{ },
+			[]float32{ },	
+		},
+		{
+			[]uint32{ 6, 5, 1, 3 },
+			[]float32{ 3, 5, 4, 6 },	
+		},
+	}
+
+	names := []string{"x", "id"}
+	nTot := 8
+	order := binary.LittleEndian
+
+	files := make([]snapio.File, len(data))
+	for i := range files {
+		var err error
+		files[i], err = snapio.NewFakeFile(
+			names, []interface{}{ data[i].x, data[i].id }, nTot, order,
+		)
+		if err != nil {
+			t.Errorf("Error while creating FakeFile %d, '%s'", i, err.Error())
+			return 
+		}
+	}
+
+	hd, err := files[0].ReadHeader()
+	if err != nil {
+		t.Errorf(err.Error())
+		return
+	}
+	idOrder := NewZMajorUnigrid(2)
+	
+	scheme, err := NewEqualSplitUnigrid(hd, idOrder, 2, []string{"x"})
+	if err != nil {
+		t.Errorf(err.Error())
+		return
+	}
+	
+	p, err, errType := Split(scheme, files, []string{"x"})
+	if err != nil {
+		t.Errorf("%v: '%s'", errType, err.Error())
+		return
+	}
+
+	for i := range p {
+		field := p[i]["x"]
+		x, ok := field.Data().([]float32)
+		if !ok {
+			t.Errorf("p[%d]['x'] is not a float32 array.", i)
+			continue
+		}
+		
+		if len(x) != 1 || !eq.Float32s(x, []float32{ float32(i) }) {
+			t.Errorf("p[%d]['x'] = %.1f.", i, x)
+		}
+	}
+}
