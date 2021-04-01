@@ -11,6 +11,10 @@ func Generic(x, y interface{}) bool {
 		yy, ok := y.([]byte)
 		if !ok { return false }
 		return Bytes(xx, yy)
+	case []int:
+		yy, ok := y.([]int)
+		if !ok { return false }
+		return Ints(xx, yy)
 	case []string:
 		yy, ok := y.([]string)
 		if !ok { return false }
@@ -62,6 +66,16 @@ func Bytes(x, y []byte) bool {
 	}
 	return true
 }
+
+// Ints returns true if two []int arrays are the same and false otherwise.
+func Ints(x, y []int) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
 
 // Uint32s returns true if two []uint32 arrays are the same and false otherwise.
 func Uint32s(x, y []uint32) bool {
@@ -117,6 +131,30 @@ func Vec64s(x, y [][3]float64) bool {
 	if len(x) != len(y) { return false }
 	for i := range x {
 		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+// Float32sEps returns true if the two []float32 arrays are within eps of one
+// another and false otherwise.
+func Float32sEps(x, y []float32, eps float32) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] + eps > y[i] || x[i] - eps < y[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// Float64sEps returns true if the two []float64 arrays are within eps of one
+// another and false otherwise.
+func Float64sEps(x, y []float64, eps float64) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] + eps > y[i] || x[i] - eps < y[i] {
+			return false
+		}
 	}
 	return true
 }
