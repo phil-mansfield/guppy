@@ -16,6 +16,8 @@ type Particles map[string]Field
 type Field interface {
 	// Len returns the length of the underlying array.
 	Len() int
+	// Name returns the name of the Field.
+	Name() string
 	// Data returns the underlying array as an interface{}.
 	Data() interface{}
 	// Transfer transfers data from the Field to the appropriately named field
@@ -67,6 +69,7 @@ func NewUint32(name string, x []uint32) *Uint32 {
 }
 
 func (x *Uint32) Len() int { return len(x.data) }
+func (x *Uint32) Name() string { return x.name }
 func (x *Uint32) Data() interface{} { return x.data }
 
 func (x *Uint32) CreateDestination(p Particles, n int) {
@@ -108,6 +111,7 @@ func NewUint64(name string, x []uint64) *Uint64 {
 }
 
 func (x *Uint64) Len() int { return len(x.data) }
+func (x *Uint64) Name() string { return x.name }
 func (x *Uint64) Data() interface{} { return x.data }
 
 func (x *Uint64) CreateDestination(p Particles, n int) {
@@ -149,6 +153,7 @@ func NewFloat32(name string, x []float32) *Float32 {
 }
 
 func (x *Float32) Len() int { return len(x.data) }
+func (x *Float32) Name() string { return x.name }
 func (x *Float32) Data() interface{} { return x.data }
 
 func (x *Float32) CreateDestination(p Particles, n int) {
@@ -190,6 +195,7 @@ func NewFloat64(name string, x []float64) *Float64 {
 }
 
 func (x *Float64) Len() int { return len(x.data) }
+func (x *Float64) Name() string { return x.name }
 func (x *Float64) Data() interface{} { return x.data }
 
 func (x *Float64) CreateDestination(p Particles, n int) {
@@ -221,6 +227,7 @@ func (x *Float64) Transfer(dest Particles, from, to []int) error {
 // Vec32 implements the Field interface for [][3]float32 data. See the Field
 // interface for documentation of this struct's methods.
 type Vec32 struct {
+	name string
 	dimNames [3]string
 	data [][3]float32
 }
@@ -231,10 +238,11 @@ func NewVec32(name string, x [][3]float32) *Vec32 {
 	for dim := range dimNames {
 		dimNames[dim] = fmt.Sprintf("%s[%d]", name, dim)
 	}
-	return &Vec32{ dimNames, x }
+	return &Vec32{ name, dimNames, x }
 }
 
 func (x *Vec32) Len() int { return len(x.data) }
+func (x *Vec32) Name() string { return x.name }
 func (x *Vec32) Data() interface{} { return x.data }
 
 func (x *Vec32) CreateDestination(p Particles, n int) {
@@ -271,6 +279,7 @@ func (x *Vec32) Transfer(dest Particles, from, to []int) error {
 // Vec64 implements the Field interface for [][3]float64 data. See the Field
 // interface for documentation of this struct's methods.
 type Vec64 struct {
+	name string
 	dimNames [3]string
 	data [][3]float64
 }
@@ -281,10 +290,11 @@ func NewVec64(name string, x [][3]float64) *Vec64 {
 	for dim := range dimNames {
 		dimNames[dim] = fmt.Sprintf("%s[%d]", name, dim)
 	}
-	return &Vec64{ dimNames, x }
+	return &Vec64{ name, dimNames, x }
 }
 
 func (x *Vec64) Len() int { return len(x.data) }
+func (x *Vec64) Name() string { return x.name }
 func (x *Vec64) Data() interface{} { return x.data }
 
 func (x *Vec64) CreateDestination(p Particles, n int) {
