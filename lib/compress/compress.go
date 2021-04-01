@@ -4,10 +4,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-
+	"math"
+	
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
 
+// TypeFlag is a flag representing an array type.
 type TypeFlag byte
 const (
 	Uint32Flag TypeFlag = iota
@@ -17,11 +19,14 @@ const (
 	numFlags
 )
 
-type MethodFlag byte
+// MethodFlag is a flag representing the method used to compress the data.
+type MethodFlag uint32
 const (
 	LagrangianDeltaFlag MethodFlag = iota
 )
 
+// GetTypeFlag returns the type flag associated with an array. Only []uint32,
+// []uint64, []float32, and []float64 are supported.
 func GetTypeFlag(x interface{}) TypeFlag {
 	switch x.(type) {
 	case []uint32: return Uint32Flag
@@ -33,14 +38,19 @@ func GetTypeFlag(x interface{}) TypeFlag {
 	}
 }
 
+// Buffer is an expandable buffer which is used by many of compress's funcitons
+// to avoid unneeded heap allocations.
 type Buffer struct {
 	b []byte
 	u32 []uint32
-	u64, u64_2 []uint64
+	u64 []uint64
 	f32 []float32
 	f64 []float64
+	q []int64 // This one is specifically for quanitzation.
+	rng *RNG
 }
 
+// Resize resizes the buffer so its arrays all have length n.
 func (buf *Buffer) Resize(n int) {
 	// These need to be handled separately because arrays for different types
 	// grow at different rates for different types.
@@ -65,11 +75,11 @@ func (buf *Buffer) Resize(n int) {
 		buf.u64 = append(buf.u64, make([]uint64, n - len(buf.u64))...)
 	}
 
-	if cap(buf.u64_2) >= n {
-		buf.u64_2 = buf.u64_2[:n]
+	if cap(buf.q) >= n {
+		buf.q = buf.q[:n]
 	} else {
-		buf.u64_2 = buf.u64_2[:cap(buf.u64_2)]
-		buf.u64_2 = append(buf.u64_2, make([]uint64, n - len(buf.u64_2))...)
+		buf.q = buf.q[:cap(buf.q)]
+		buf.q = append(buf.q, make([]int64, n - len(buf.q))...)
 	}
 
 	if cap(buf.f32) >= n {
@@ -87,25 +97,64 @@ func (buf *Buffer) Resize(n int) {
 	}	
 }
 
-func NewBuffer() *Buffer {
+// NewBuffer creates a new, resizable Buffer,
+func NewBuffer(seed uint64) *Buffer {
 	return &Buffer{ []byte{ }, []uint32{ }, []uint64{ },
-		[]uint64{ }, []float32{ }, []float64{ } }
+		[]float32{ }, []float64{ }, []int64{ }, NewRNG(seed) }
 }
 
-func quantize(f particles.Field, delta float64, out []uint64) {
+// quantize comverts an array to []uin64 and write it to out. If the array is
+// floating point, it is stored to an accuracy of delta.
+func quantize(f particles.Field, delta float64, out []int64) {
+	// TODO: calling math.Fllor here is much slower than it needs to be.
+	// Replace with conditionals.
 	switch x := f.Data().(type) {
 	case []uint64:
-		for i := range out { out[i] = x[i] }		
+		for i := range out { out[i] = int64(x[i]) }
 	case []uint32:
-		for i := range out { out[i] = uint64(x[i]) }
+		for i := range out { out[i] = int64(x[i]) }
 	case []float32:
-		delta32 := float32(0.0)
-		for i := range x { out[i] = uint64(x[i] / delta32) }
+		delta32 := float32(delta)
+		for i := range x { out[i] = int64(math.Floor(float64(x[i] / delta32))) }
 	case []float64:
-		for i := range x { out[i] = uint64(x[i] / delta) }
+		for i := range x { out[i] = int64(math.Floor(x[i] / delta)) }
 	default:
 		panic("'Impossible' type configuration.")
 	}
+}
+
+// dequantize converts an []int64 array to a different type of array.
+// If the output type is floating point, delta*x + delta*uniform(0, 1) is
+// used instead. Assumes that buf has been resized to the same length as
+// q.
+func dequantize(
+	name string, q []int64, delta float64, typeFlag TypeFlag, buf *Buffer,
+) particles.Field {
+	var f particles.Field
+	switch typeFlag {
+	case Uint32Flag:
+		for i := range buf.u32 { buf.u32[i] = uint32(q[i]) }
+		f = particles.NewUint32(name, buf.u32)
+	case Uint64Flag:
+		for i := range buf.u64 { buf.u64[i] = uint64(q[i]) }
+		f = particles.NewUint64(name, buf.u64)
+	case Float32Flag:
+		buf.rng.UniformSequence(buf.f64)
+		for i := range buf.f32 {
+			buf.f32[i] = float32(delta*(float64(q[i]) + buf.f64[i]))
+		}
+		f = particles.NewFloat32(name, buf.f32)
+	case Float64Flag:
+		buf.rng.UniformSequence(buf.f64)
+		for i := range buf.f64 {
+			buf.f64[i] = delta*(float64(q[i]) + buf.f64[i])
+		}
+		f = particles.NewFloat64(name, buf.f64)
+	default:
+		panic("'Impossible' type configuration.")
+	}
+	
+	return f
 }
 
 type Method interface {

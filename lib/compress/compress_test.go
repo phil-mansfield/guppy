@@ -4,14 +4,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
-
+	
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
 
 func TestBuffer(t *testing.T) {
 	tests := []int{ 0, 10, 0, 10, 20, 30, 30, 30, 10, 10000, 0}
-	buf := NewBuffer()
+	buf := NewBuffer(0)
 	prevLen := 0
 	// Different element sizes grow at different rates when appending.
 	prevCapMap := map[string]int {
@@ -36,11 +36,85 @@ func TestBuffer(t *testing.T) {
 		test("b", len(buf.b), cap(buf.b))
 		test("u32", len(buf.u32), cap(buf.u32))
 		test("u64", len(buf.u64), cap(buf.u64))
-		test("u64_2", len(buf.u64_2), cap(buf.u64_2))
+		test("q", len(buf.q), cap(buf.q))
 		test("f32", len(buf.f32), cap(buf.f32))
 		test("f64", len(buf.f64), cap(buf.f64))
 
 		prevLen = len(buf.u32)
+	}
+}
+
+func TestQuantize(t *testing.T) {
+	name := "meow"
+	
+	tests := []struct{
+		f particles.Field
+		delta float64
+	} {
+		{particles.NewUint32(name, []uint32{ }), 0.0},
+		{particles.NewUint64(name, []uint64{ }), 0.0},
+		{particles.NewFloat32(name, []float32{ }), 0.0},
+		{particles.NewFloat64(name, []float64{ }), 0.0},
+
+		{particles.NewUint32(name, []uint32{0, 1, 2, 3, 4, 5}), 0.0},
+		{particles.NewUint64(name, []uint64{0, 0, 0, 0,0, 100000,100000}), 0.0},
+		{particles.NewFloat32(name,
+			[]float32{-1, -1.5, -2, 0, 1, 1.5, 2}), 1e-3},
+		{particles.NewFloat64(name,
+			[]float64{-1, -1.5, -2, 0, 1, 1.5, 2}), 1e-3},
+
+	}
+
+	buf := NewBuffer(0)
+	
+	for i := range tests {
+		buf.Resize(tests[i].f.Len())
+		quantize(tests[i].f, tests[i].delta, buf.q)
+
+		var flag TypeFlag
+		switch tests[i].f.Data().(type) {
+		case []uint32: flag = Uint32Flag
+		case []uint64: flag = Uint64Flag
+		case []float32: flag = Float32Flag
+		case []float64: flag = Float64Flag
+		default: panic("'Impossible' type configuration")
+		}
+		
+		f := dequantize(name, buf.q, tests[i].delta, flag, buf)
+
+		switch x := f.Data().(type) {
+		case []uint32:
+			y, ok := tests[i].f.Data().([]uint32)
+			if !ok {
+				t.Errorf("%d) output Field has type []uint32", i)
+			} else if !eq.Uint32s(x, y) {
+				t.Errorf("%d) Expected output %d, got %d.", i, y, x)
+			}
+		case []uint64:
+			y, ok := tests[i].f.Data().([]uint64)
+			if !ok {
+				t.Errorf("%d) output Field has type []uint64", i)
+			} else if !eq.Uint64s(x, y) {
+				t.Errorf("%d) Expected output %d, got %d.", i, y, x)
+			}
+		case []float32:
+			y, ok := tests[i].f.Data().([]float32)
+			if !ok {
+				t.Errorf("%d) output Field has type []float32", i)
+			} else if !eq.Float32sEps(x, y, float32(tests[i].delta)) {
+				t.Errorf("%d) Expected output %f, got %f.", i, y, x)
+			}
+		case []float64:
+			y, ok := tests[i].f.Data().([]float64)
+			if !ok {
+				t.Errorf("%d) output Field has type []float64", i)
+			} else if !eq.Float64sEps(x, y, tests[i].delta) {
+				t.Errorf("%d) Expected output %f, got %f.", i, y, x)
+			}
+
+		default:
+			t.Errorf("%d) Unknown type for output, %v", i, f.Data())
+		}
 	}
 }
 
@@ -57,9 +131,17 @@ func TestLagrangianDelta(t *testing.T) {
 		{ [3]int{0, 0, 0}, 0, 0, []uint64{} },
 		{ [3]int{0, 0, 0}, 0, 0, []float32{} },
 		{ [3]int{0, 0, 0}, 0, 0, []float64{} },
+		{ [3]int{2, 2, 2}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{1, 1, 8}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{1, 8, 1}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{8, 1, 1}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{2, 2, 2}, 0, 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{2, 2, 2}, 0, 0, []float32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{2, 2, 2}, 0, 0, []float64{0, 1, 2, 4, 4, 5, 6, 0} },
+
 	}
 
-	buf := NewBuffer()
+	buf := NewBuffer(0)
 	for i := range tests {
 		m := NewLagrangianDelta(
 			order, tests[i].span, tests[i].dir, tests[i].delta,
@@ -77,7 +159,7 @@ func TestLagrangianDelta(t *testing.T) {
 		if err != nil {
 			t.Errorf("%d) Got error '%s' on Compress", i, err.Error())
 		}
-
+		
 		rd := bytes.NewReader(wr.Bytes())
 		mOut := &LagrangianDelta{ }
 
