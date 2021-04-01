@@ -2,7 +2,6 @@ package compress
 
 import (
 	"encoding/binary"
-	"fmt"
 	"io"
 	"math"
 	
@@ -229,6 +228,7 @@ func (m *LagrangianDelta) ReadInfo(order binary.ByteOrder, rd io.Reader) error {
 func (m *LagrangianDelta) Compress(
 	f particles.Field, buf *Buffer, wr io.Writer,
 ) error {
+	buf.Resize(f.Len())
 	x := f.Data()
 	
 	err := binary.Write(wr, m.order, GetTypeFlag(x))
@@ -238,15 +238,20 @@ func (m *LagrangianDelta) Compress(
 	err = binary.Write(wr, m.order, []byte(f.Name()))
 	if err != nil { return err }
 	
-	err = binary.Write(wr, m.order, x)
+	quantize(f, m.delta, buf.q)
+	err = binary.Write(wr, m.order, buf.q)
 	return err
 }
 
 func (m *LagrangianDelta) Decompress(
 	buf *Buffer, rd io.Reader,
 ) (particles.Field, error) {
-	typeFlag := TypeFlag(0)
-	nName := uint32(0)
+	buf.Resize(m.nTot)
+	
+	var (
+		typeFlag TypeFlag
+		nName uint32
+	)
 	
 	err := binary.Read(rd, m.order, &typeFlag)
 	if err != nil { return nil, err }
@@ -257,18 +262,11 @@ func (m *LagrangianDelta) Decompress(
 	err = binary.Read(rd, m.order, bName)
 	if err != nil { return nil, err }
 	name := string(bName)
-	
-	var x interface{}
-	switch typeFlag {
-	case Uint32Flag: x = make([]uint32, m.nTot)
-	case Uint64Flag: x = make([]uint64, m.nTot)
-	case Float32Flag: x = make([]float32, m.nTot)
-	case Float64Flag: x = make([]float64, m.nTot)
-	default:
-		return nil, fmt.Errorf("Type flag for block was %d, but only flags 0 - %d are mapped to types", typeFlag, numFlags)
-	}
 
-	return particles.NewGenericField(name, x)
+	err = binary.Read(rd, m.order, buf.q)
+	if err != nil { return nil, err }
+	
+	return dequantize(name, buf.q, m.delta, typeFlag, buf), nil
 }
 
 
