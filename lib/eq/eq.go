@@ -140,7 +140,7 @@ func Vec64s(x, y [][3]float64) bool {
 func Float32sEps(x, y []float32, eps float32) bool {
 	if len(x) != len(y) { return false }
 	for i := range x {
-		if x[i] + eps > y[i] || x[i] - eps < y[i] {
+		if x[i] + eps < y[i] || x[i] - eps > y[i] {
 			return false
 		}
 	}
@@ -152,7 +152,7 @@ func Float32sEps(x, y []float32, eps float32) bool {
 func Float64sEps(x, y []float64, eps float64) bool {
 	if len(x) != len(y) { return false }
 	for i := range x {
-		if x[i] + eps > y[i] || x[i] - eps < y[i] {
+		if x[i] + eps < y[i] || x[i] - eps > y[i] {
 			return false
 		}
 	}
