@@ -34,7 +34,7 @@ type Header interface {
 	Types() []string
 	
 	// NTot returns the total number of particles in the simulation.
-	NTot() int
+	NTot() int64
 	// Z returns the redshift of the snapshot.
 	Z() float64
 	// OmegaM returns Omega_m(z=0).
@@ -43,4 +43,6 @@ type Header interface {
 	H100() float64
 	// L returns the width of the simulation box in comoving Mpc/h.
 	L() float64
+	// Mass returns the particle mass in the simulation.
+	Mass() float64
 }

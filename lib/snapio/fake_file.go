@@ -91,11 +91,12 @@ func (f *FakeFileHeader) ToBytes() []byte{ return []byte{4, 8, 15, 16, 23, 42} }
 func (f *FakeFileHeader) ByteOrder() binary.ByteOrder { return f.order }
 func (f *FakeFileHeader) Names() []string { return f.names }
 func (f *FakeFileHeader) Types() []string { return f.types }
-func (f *FakeFileHeader) NTot() int { return f.nTot }
+func (f *FakeFileHeader) NTot() int64 { return int64(f.nTot) }
 func (f *FakeFileHeader) Z() float64 { return 1.0 }
 func (f *FakeFileHeader) OmegaM() float64 { return 0.27 }
 func (f *FakeFileHeader) H100() float64 { return 0.70 }
 func (f *FakeFileHeader) L() float64 { return 100.0 }
+func (f *FakeFileHeader) Mass() float64 { return 1e10 }
 
 func arrayToReader(x interface{}, order binary.ByteOrder) io.Reader {
 	buf := &bytes.Buffer{ }
