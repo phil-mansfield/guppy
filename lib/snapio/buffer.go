@@ -31,7 +31,6 @@ type Buffer struct {
 	
 	u32 [][]uint32
 	u64 [][]uint64
-	id []int
 
 	
 }
