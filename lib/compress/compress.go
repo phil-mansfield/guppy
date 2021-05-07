@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
-	
+
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
 

@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"testing"
-	
+
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
@@ -129,15 +129,15 @@ func TestLagrangianDelta(t *testing.T) {
 	} {
 		{ [3]int{0, 0, 0}, 0, 0, []uint32{} },
 		{ [3]int{0, 0, 0}, 0, 0, []uint64{} },
-		{ [3]int{0, 0, 0}, 0, 0, []float32{} },
-		{ [3]int{0, 0, 0}, 0, 0, []float64{} },
+		{ [3]int{0, 0, 0}, 0, 1e-4, []float32{} },
+		{ [3]int{0, 0, 0}, 0, 1e-4, []float64{} },
 		{ [3]int{2, 2, 2}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
 		{ [3]int{1, 1, 8}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
 		{ [3]int{1, 8, 1}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
 		{ [3]int{8, 1, 1}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
 		{ [3]int{2, 2, 2}, 0, 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{2, 2, 2}, 0, 0, []float32{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{2, 2, 2}, 0, 0, []float64{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{2, 2, 2}, 0, 1e-4, []float32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{2, 2, 2}, 0, 1e-4, []float64{0, 1, 2, 4, 4, 5, 6, 0} },
 
 	}
 
@@ -196,7 +196,7 @@ func TestLagrangianDelta(t *testing.T) {
 			continue
 		}
 		
-		x := f.Data()
+		x := fOut.Data()
 		dataEqual := false
 		switch d := tests[i].data.(type) {
 		case []uint32: dataEqual = eq.Generic(d, x)
@@ -214,7 +214,6 @@ func TestLagrangianDelta(t *testing.T) {
 			}
 			dataEqual = eq.Float64sEps(d, x64, tests[i].delta)
 		}
-
 		if !dataEqual {
 			t.Errorf("%d) Compressed the array %v, but it decompressed to %v.",
 				i, tests[i].data, x)
