@@ -20,7 +20,7 @@ type IDOrder interface {
 	LevelSpan(level int) [3]int
 
 	// Ntot returns the total number of particles spanned by IDOrder.
-	NTot() int
+	NTot() int64
 }
 
 // Type assertions
@@ -53,7 +53,7 @@ func (g *ZMajorUnigrid) IDToIndex(id uint64) (idx [3]int, level int) {
 func (g *ZMajorUnigrid) IDToLevel(id uint64) int { return 0 }
 
 func (g *ZMajorUnigrid) IndexToID(i [3]int, level int) uint64 {
-	return uint64(i[2] + i[1]*g.n + i[0]*g.n*g.n)
+	return uint64(i[2]) + uint64(i[1])*g.n64 + uint64(i[0])*g.n64*g.n64
 }
 
 
@@ -67,4 +67,4 @@ func (g *ZMajorUnigrid) LevelSpan(level int) [3]int {
 	return [3]int{ g.n, g.n, g.n }
 }
 
-func (g *ZMajorUnigrid) NTot() int { return g.n*g.n*g.n }
+func (g *ZMajorUnigrid) NTot() int64 { return int64(g.n64*g.n64*g.n64) }

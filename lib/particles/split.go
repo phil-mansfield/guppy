@@ -162,7 +162,7 @@ func NewEqualSplitUnigrid(
 ) (*EqualSplitUnigrid, error) {
 	nTot := hd.NTot()
 	nAll := round(math.Pow(float64(nTot), 1.0/3))
-	if nAll*nAll*nAll != nTot {
+	if int64(nAll)*int64(nAll)*int64(nAll) != nTot {
 		return nil, fmt.Errorf("The total number of particles in the simulation is %d, but uniform grids must be perfect cubes.", nTot)
 	} else if order.NTot() != nTot {
 		return nil, fmt.Errorf("The number of particles in the files is %d, but the simulation is supposed to have %d particles.", nTot, order.NTot())
