@@ -48,7 +48,7 @@ func testFakeFileHeader(hd Header) error {
 	byteOrderExp := binary.BigEndian
 	namesExp := []string{"id", "x", "x2", "v", "id2", "dt", "phi"}
 	typesExp := []string{ "u32", "v32", "v64", "v32", "u64", "f32", "f64" }
-	nTotExp := 20
+	nTotExp := int64(20)
 	zExp := 1.0
 	omExp := 0.27
 	h100Exp := 0.70

@@ -6,8 +6,7 @@ import (
 	"fmt"
 	"os"
 	"bytes"
-
-	"unsafe"
+	"sort"
 )
 
 const (
@@ -68,7 +67,7 @@ func (f *abstractGadget2) Read(name string, buf *Buffer) error {
 			"that at least one of the earlier blocks shouldn't be there, " +
 			"has the wrong type, or is missing. The supplied blocks are " + 
 			"%s, with types %s.",
-			f.names[i], f.fileName, hdSize, f.names, f.types)
+			f.names[i], f.fileName, finalBlockSize, hdSize, f.names, f.types)
 	} else if hdSize != uint32(finalBlockSize) {
 		frac := float64(hdSize) / float64(f.hd.n)
 		return fmt.Errorf("The block '%s' in file should have %d bytes due " + 
@@ -175,7 +174,7 @@ func checkGadget2File(fileName string) error {
 	info, err := os.Stat(fileName)
 	if err != nil {
 		return fmt.Errorf("The file %s cannot be opened. The system error " + 
-			"is: %s", fileName, err.Error())
+			"is: \"%s\"", fileName, err.Error())
 	} else if info.IsDir() {
 		return fmt.Errorf("The file %s is a directory, not a Gadget-2 file.",
 			fileName)
@@ -196,9 +195,9 @@ func checkGadget2FileSize(fileName string, n int, types []string) error {
 		size += 8 + blockSize(types[i], n)
 	}
 	if size != info.Size() {
-		fmt.Errorf("The provided Gadget-2 data types, %s, would lead to the " +
-			"%d-particle file, %s, having %d bytes, but it actually has %d " +
-			"bytes. You should check that the types are correct " + 
+		return fmt.Errorf("The provided Gadget-2 data types, %s, would lead " + 
+			"to the %d-particle file, %s, having %d bytes, but it actually " + 
+			"has %d bytes. You should check that the types are correct " + 
 			"(particularly the id size) and that no blocks are missing.", 
 			types, n, fileName, size, info.Size(),
 		)
@@ -214,6 +213,11 @@ func checkGadget2Types(names, types []string) error {
 		return fmt.Errorf("%d block names were given for Gadget-2 " + 
 			"files, but %d block types were given.", len(names), len(types))
 	} 
+
+	if s, ok := containsDuplicates(names); ok {
+		return fmt.Errorf("'%s' occurs multiple times in the " +
+			"list of block names given for Gadget-2 files, %s.", s, names)
+	}
 
 	hasID := false
 
@@ -272,6 +276,21 @@ func knownBlock(name, typ, targetName string, validTypes []string) error {
 		name, typ, name, validTypes)
 }
 
+// containsDuplicates tests whether any strings show up multiple times.
+// If so, it returns on of those strings and returns true, otherwise it returns
+// and empty stgring and false.
+func containsDuplicates(s []string) (string, bool) {
+	sSort := make([]string, len(s))
+	for i := range s { sSort[i] = s[i] }
+	sort.Strings(sSort)
+	for i := 1; i < len(sSort); i++ {
+		if sSort[i] == sSort[i - 1] {
+			return sSort[i], true
+		}
+	}
+	return "", false
+}
+
 // Gadget2Cosmological is an implementation of the File interface for standard
 // Gadget-2 files. Gadget-2 files do not have a standard set of variables
 // or order to those variables, so they must be specified at runtime. This
@@ -312,10 +331,10 @@ type rawLGadget2Header struct {
 	Time, Redshift float64
 	FlagSFR, FlagFeedback uint32
 	NPartTotal [6]uint32
-	FlagCooling, NumFiles uint32
+	rawFlagCooling, NumFiles uint32
 	BoxSize, Omega0, OmegaLambda, HubbleParam float64
 	FlagStellarAge, HashTabSize uint32
-	Empty [96]byte
+	Empty [88]byte
 }
 
 // rawGadget2Header is a struct with the same fields as the raw header data of 
@@ -331,7 +350,7 @@ type rawGadget2Header struct {
 	FlagStellarAge, FlagMetals uint32
 	NallHW[6] uint32
 	FlagEntroypICs uint32
-	Empty [68]byte
+	Empty [60]byte
 }
 
 // readRawGadgetHeader is a generic Gadget-2 header-reading function that
@@ -341,11 +360,6 @@ type rawGadget2Header struct {
 func readRawGadgetHeader(
 	fileName string, order binary.ByteOrder, rawHd interface{},
 ) error {
-	if size := unsafe.Sizeof(rawHd); size != gadget2HeaderSize {
-		panic(fmt.Sprintf("Internal error: Gadget-2 header is %d bytes, " + 
-			"but should be %d bytes.", size, gadget2HeaderSize))
-	}
-
 	file, err := os.Open(fileName)
 	if err != nil { return err }
 	defer file.Close()
@@ -356,8 +370,9 @@ func readRawGadgetHeader(
 	err = binary.Read(file, order, &nHeader)
 	if err != nil { return err }
 	if nHeader != gadget2HeaderSize {
-		return fmt.Errorf("%s is not a valid Gadget-2 file: the header " + 
-			"is %d bytes instead of %d.", fileName, nHeader, gadget2HeaderSize)
+		return fmt.Errorf("%s is not a valid Gadget-2 file: the first " +
+			"integer would lead to a header with %d bytes instead of %d.",
+			fileName, nHeader, gadget2HeaderSize)
 	}
 
 	// Read the data block.
@@ -369,7 +384,7 @@ func readRawGadgetHeader(
 	if err != nil { return err }
 	if nHeader != nFooter {
 		return fmt.Errorf("%s is not a valid Gadget-2 file: the header, %d, " + 
-			"and footer, %d,  of the first data block don't match.",
+			"and footer, %d, of the first data block don't match.",
 			fileName, nHeader, nFooter,
 		)
 	}
@@ -383,7 +398,8 @@ func (f *LGadget2) readHeader() (hd *Gadget2Header, err error) {
 	if err != nil { return nil, err }
 
 	n := int(rawHd.NPart[1])
-	nTot := int64(uint64(rawHd.NPartTotal[1]) + uint64(rawHd.NPartTotal[0])<<32)
+	nTot := int64(uint64(rawHd.NPartTotal[1]) +
+		uint64(rawHd.NPartTotal[0])<<32)
 
 	buf := &bytes.Buffer{ }
 	err = binary.Write(buf, f.order, rawHd)
