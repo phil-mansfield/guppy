@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"compress/zlib"
 
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
@@ -45,14 +46,14 @@ type Buffer struct {
 	u64 []uint64
 	f32 []float32
 	f64 []float64
-	q []int64 // This one is specifically for quanitzation.
+	q []uint64 // This one is specifically for quanitzation.
 	rng *RNG
 }
 
 // Resize resizes the buffer so its arrays all have length n.
 func (buf *Buffer) Resize(n int) {
 	// These need to be handled separately because arrays for different types
-	// grow at different rates for different types.
+	// grow at different rates.
 	if cap(buf.b) >= n {
 		buf.b = buf.b[:n]
 	} else {
@@ -78,7 +79,7 @@ func (buf *Buffer) Resize(n int) {
 		buf.q = buf.q[:n]
 	} else {
 		buf.q = buf.q[:cap(buf.q)]
-		buf.q = append(buf.q, make([]int64, n - len(buf.q))...)
+		buf.q = append(buf.q, make([]uint64, n - len(buf.q))...)
 	}
 
 	if cap(buf.f32) >= n {
@@ -99,24 +100,26 @@ func (buf *Buffer) Resize(n int) {
 // NewBuffer creates a new, resizable Buffer,
 func NewBuffer(seed uint64) *Buffer {
 	return &Buffer{ []byte{ }, []uint32{ }, []uint64{ },
-		[]float32{ }, []float64{ }, []int64{ }, NewRNG(seed) }
+		[]float32{ }, []float64{ }, []uint64{ }, NewRNG(seed) }
 }
 
 // quantize comverts an array to []uin64 and write it to out. If the array is
 // floating point, it is stored to an accuracy of delta.
-func quantize(f particles.Field, delta float64, out []int64) {
+func quantize(f particles.Field, delta float64, out []uint64) {
 	// TODO: calling math.Fllor here is much slower than it needs to be.
 	// Replace with conditionals.
 	switch x := f.Data().(type) {
 	case []uint64:
-		for i := range out { out[i] = int64(x[i]) }
+		for i := range out { out[i] = x[i] }
 	case []uint32:
-		for i := range out { out[i] = int64(x[i]) }
+		for i := range out { out[i] = uint64(x[i]) }
 	case []float32:
 		delta32 := float32(delta)
-		for i := range x { out[i] = int64(math.Floor(float64(x[i] / delta32))) }
+		for i := range x {
+			out[i] = uint64(math.Floor(float64(x[i] / delta32)))
+		}
 	case []float64:
-		for i := range x { out[i] = int64(math.Floor(x[i] / delta)) }
+		for i := range x { out[i] = uint64(math.Floor(x[i] / delta)) }
 	default:
 		panic("'Impossible' type configuration.")
 	}
@@ -127,7 +130,7 @@ func quantize(f particles.Field, delta float64, out []int64) {
 // used instead. Assumes that buf has been resized to the same length as
 // q.
 func dequantize(
-	name string, q []int64, delta float64, typeFlag TypeFlag, buf *Buffer,
+	name string, q []uint64, delta float64, typeFlag TypeFlag, buf *Buffer,
 ) particles.Field {
 	var f particles.Field
 	switch typeFlag {
@@ -135,7 +138,7 @@ func dequantize(
 		for i := range buf.u32 { buf.u32[i] = uint32(q[i]) }
 		f = particles.NewUint32(name, buf.u32)
 	case Uint64Flag:
-		for i := range buf.u64 { buf.u64[i] = uint64(q[i]) }
+		for i := range buf.u64 { buf.u64[i] = q[i] }
 		f = particles.NewUint64(name, buf.u64)
 	case Float32Flag:
 		buf.rng.UniformSequence(buf.f64)
@@ -181,18 +184,20 @@ type LagrangianDelta struct {
 	span [3]int
 	nTot, dir int
 	delta float64
+
+	b []byte // Used for input/output to zlib library
 }
 
 // NewLagrangianDelta creates a new LagrangianDelta object using a given byte
 // ordering. The data inside will have dimensions given by span, encoding
-// will be done along the dimension, dir (0 -> x etc.), and floating point
-// data will be encoded such that values are stored to within at least delta
-// of their starting positions.
+// will be done along the dimension, dir (0 -> x, 1-> y, etc.), and floating
+// point data will be encoded such that values are stored to within at least
+// delta of their starting positions.
 func NewLagrangianDelta(
 	order binary.ByteOrder, span [3]int, dir int, delta float64,
 ) *LagrangianDelta {
 	nTot := span[0]*span[1]*span[2]
-	return &LagrangianDelta{ order, span, nTot, dir, delta }
+	return &LagrangianDelta{ order, span, nTot, dir, delta , []byte{} }
 }
 
 func (m *LagrangianDelta) WriteInfo(wr io.Writer) error {
@@ -231,15 +236,32 @@ func (m *LagrangianDelta) Compress(
 	buf.Resize(f.Len())
 	x := f.Data()
 	
+	// Write basic info about the field: type and name.
 	err := binary.Write(wr, m.order, GetTypeFlag(x))
 	if err != nil { return err }
 	err = binary.Write(wr, m.order, uint32(len(f.Name())))
 	if err != nil { return err }
 	err = binary.Write(wr, m.order, []byte(f.Name()))
 	if err != nil { return err }
-	
+
+	// Convert to integers.
 	quantize(f, m.delta, buf.q)
-	err = binary.Write(wr, m.order, buf.q)
+
+	// Set up buffers.
+	m.b = resizeBytes(m.b, f.Len())
+
+	// Write compressed data to disk column by column.
+	for i := 0; i < 8; i++ {
+		wrZLib := zlib.NewWriter(wr)
+
+		intToByte(buf.q, m.b, i)
+		_, err := wrZLib.Write(m.b)
+
+		if err != nil { return err }
+
+		wrZLib.Close()
+	}
+
 	return err
 }
 
@@ -263,10 +285,51 @@ func (m *LagrangianDelta) Decompress(
 	if err != nil { return nil, err }
 	name := string(bName)
 
-	err = binary.Read(rd, m.order, buf.q)
-	if err != nil { return nil, err }
-	
+	// Set up buffers
+	m.b = resizeBytes(m.b, len(buf.q))
+	for i := range buf.q { buf.q[i] = 0 }
+
+	// Read compressed data from disk column by column.
+	for i := 0; i < 8; i++ {
+		// We need to create a new Reader each loop so a different codex is
+		// used for the different columns, letting the high-significance bits
+		// be compressed to basically nothing.
+		rdZLib, err := zlib.NewReader(rd)
+		if err != nil { return nil, err }
+
+		rdZLib.Read(m.b)
+		if err != nil { return nil, err }
+
+		byteToInt(m.b, buf.q, i)
+
+		rdZLib.Close()
+	}
+
 	return dequantize(name, buf.q, m.delta, typeFlag, buf), nil
 }
 
+// intToByte transfers a one-byte "column" from u64 to b. The bytes are indexed
+// from least to most significant.
+func intToByte(u64 []uint64, b []byte, col int) {
+	for i := range u64 {
+		b[i] = byte((u64[i] >> (8*col)) & 0xff)
+	}
+}
 
+// byteToInt adds a one-byte column
+func byteToInt(b []byte, u64 []uint64, col int) {
+	for i := range b {
+		u64[i] += uint64(b[i]) << (8*col)
+	}
+}
+
+func resizeBytes(b []byte, n int) []byte {
+	if cap(b) >= n {
+		b = b[:n]
+	} else {
+		b = b[:cap(b)]
+		b = append(b, make([]byte, n - len(b))...)
+	}
+
+	return b
+}
