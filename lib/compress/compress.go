@@ -5,6 +5,7 @@ import (
 	"io"
 	"math"
 	"compress/zlib"
+	"fmt"
 
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
@@ -250,16 +251,10 @@ func (m *LagrangianDelta) Compress(
 	// Set up buffers.
 	m.b = resizeBytes(m.b, f.Len())
 
-	// Write compressed data to disk column by column.
-	for i := 0; i < 8; i++ {
-		wrZLib := zlib.NewWriter(wr)
-
-		intToByte(buf.q, m.b, i)
-		_, err := wrZLib.Write(m.b)
-
-		if err != nil { return err }
-
-		wrZLib.Close()
+	// Write to disk.
+	if err := writeCompressedInts(buf.q, m.b, wr); err != nil {
+		return fmt.Errorf("zlib error while writing block '%s': %s",
+			f.Name(), err.Error())
 	}
 
 	return err
@@ -289,20 +284,10 @@ func (m *LagrangianDelta) Decompress(
 	m.b = resizeBytes(m.b, len(buf.q))
 	for i := range buf.q { buf.q[i] = 0 }
 
-	// Read compressed data from disk column by column.
-	for i := 0; i < 8; i++ {
-		// We need to create a new Reader each loop so a different codex is
-		// used for the different columns, letting the high-significance bits
-		// be compressed to basically nothing.
-		rdZLib, err := zlib.NewReader(rd)
-		if err != nil { return nil, err }
-
-		rdZLib.Read(m.b)
-		if err != nil { return nil, err }
-
-		byteToInt(m.b, buf.q, i)
-
-		rdZLib.Close()
+	// Read data.
+	if err := readCompressedInts(rd, m.b, buf.q); err != nil {
+		return nil, fmt.Errorf("zlib error while reading block '%s': %s",
+			name, err.Error())
 	}
 
 	return dequantize(name, buf.q, m.delta, typeFlag, buf), nil
@@ -323,6 +308,7 @@ func byteToInt(b []byte, u64 []uint64, col int) {
 	}
 }
 
+// reszieBytes resizes a byte buffer to have length 
 func resizeBytes(b []byte, n int) []byte {
 	if cap(b) >= n {
 		b = b[:n]
@@ -332,4 +318,50 @@ func resizeBytes(b []byte, n int) []byte {
 	}
 
 	return b
+}
+
+func writeCompressedInts(q []uint64, b []byte, wr io.Writer) error {
+	if len(q) != len(b) {
+		panic(fmt.Sprintf("Internal error: output byte buffer has length %d," + 
+			" but quantized int array had length %d.", len(b), len(q)))
+	}
+	for i := 0; i < 8; i++ {
+		// We need to create a new Writer each loop so a different codex is
+		// used for the different columns, letting the high-significance bits
+		// be compressed to basically nothing.
+		wrZLib := zlib.NewWriter(wr)
+
+		intToByte(q, b, i)
+		_, err := wrZLib.Write(b)
+
+		if err != nil { return err }
+
+		wrZLib.Close()
+	}
+
+	return nil
+}
+
+// readsCompressedInts reads an array of ints, q, from an io.Reader using
+// column-ordered zlib blocks. b is used as a temporary internal buffer 
+// and must be the same length as q. 
+func readCompressedInts(rd io.Reader, b []byte, q []uint64) error {
+	if len(q) != len(b) {
+		panic(fmt.Sprintf("Internal error: output byte buffer has length %d," + 
+			" but quantized int array had length %d.", len(b), len(q)))
+	}
+
+	for i := 0; i < 8; i++ {
+		rdZLib, err := zlib.NewReader(rd)
+		if err != nil { return err }
+
+		rdZLib.Read(b)
+		if err != nil { return err }
+
+		byteToInt(b, q, i)
+
+		rdZLib.Close()
+	}
+
+	return nil
 }
