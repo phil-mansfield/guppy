@@ -6,6 +6,7 @@ import (
 	"math"
 	"compress/zlib"
 	"fmt"
+	"strings"
 
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
@@ -106,7 +107,7 @@ func NewBuffer(seed uint64) *Buffer {
 
 // quantize comverts an array to []uin64 and write it to out. If the array is
 // floating point, it is stored to an accuracy of delta.
-func quantize(f particles.Field, delta float64, out []uint64) {
+func Quantize(f particles.Field, delta float64, out []uint64) {
 	// TODO: calling math.Fllor here is much slower than it needs to be.
 	// Replace with conditionals.
 	switch x := f.Data().(type) {
@@ -130,7 +131,7 @@ func quantize(f particles.Field, delta float64, out []uint64) {
 // If the output type is floating point, delta*x + delta*uniform(0, 1) is
 // used instead. Assumes that buf has been resized to the same length as
 // q.
-func dequantize(
+func Dequantize(
 	name string, q []uint64, delta float64, typeFlag TypeFlag, buf *Buffer,
 ) particles.Field {
 	var f particles.Field
@@ -160,6 +161,7 @@ func dequantize(
 	return f
 }
 
+// Method is an interface representing a compression method.
 type Method interface {
 	// WriteInfo writes initialization information to a Writer.
 	WriteInfo(wr io.Writer) error
@@ -185,8 +187,6 @@ type LagrangianDelta struct {
 	span [3]int
 	nTot, dir int
 	delta float64
-
-	b []byte // Used for input/output to zlib library
 }
 
 // NewLagrangianDelta creates a new LagrangianDelta object using a given byte
@@ -198,7 +198,7 @@ func NewLagrangianDelta(
 	order binary.ByteOrder, span [3]int, dir int, delta float64,
 ) *LagrangianDelta {
 	nTot := span[0]*span[1]*span[2]
-	return &LagrangianDelta{ order, span, nTot, dir, delta , []byte{} }
+	return &LagrangianDelta{ order, span, nTot, dir, delta }
 }
 
 func (m *LagrangianDelta) WriteInfo(wr io.Writer) error {
@@ -246,18 +246,45 @@ func (m *LagrangianDelta) Compress(
 	if err != nil { return err }
 
 	// Convert to integers.
-	quantize(f, m.delta, buf.q)
+	Quantize(f, m.delta, buf.q)
 
-	// Set up buffers.
-	m.b = resizeBytes(m.b, f.Len())
+	// Write the first value in the block as a special value.
+	err = binary.Write(wr, m.order, buf.q[0])
+	if err != nil { return err }
+
+	firstDim := ChooseFirstDim(f.Name())
+	slices := BlockToSlices(m.span, firstDim, buf.q, buf.u64)
+	offsets := SliceOffsets(slices)
+	minDx := MinDxMulti(offsets, slices)
+
+	// Write minDx
+	err = binary.Write(wr, m.order, minDx)
+	if err != nil { return err }
+
+	// Replace each slice with its deltas. This modifies buf.u64.
+	for i := range slices {
+		DeltaEncode(offsets[i], minDx, slices[i], slices[i])
+	}
 
 	// Write to disk.
-	if err := writeCompressedInts(buf.q, m.b, wr); err != nil {
+	if err := WriteCompressedInts(buf.u64, buf.b, wr); err != nil {
 		return fmt.Errorf("zlib error while writing block '%s': %s",
 			f.Name(), err.Error())
 	}
 
 	return err
+}
+
+// CooseFirstDim chooses the first encoded dimension for a variable with a
+// given name. This is chosen so almost all the deltas are perpendicular to the
+// direction of the vector if the stored data is vector.
+func ChooseFirstDim(name string) int {
+	switch {
+	case strings.Index(name, "[0]") >= 0: return 0
+	case strings.Index(name, "[1]") >= 0: return 1
+	case strings.Index(name, "[2]") >= 0: return 2
+	default: return 0
+	}
 }
 
 func (m *LagrangianDelta) Decompress(
@@ -268,6 +295,8 @@ func (m *LagrangianDelta) Decompress(
 	var (
 		typeFlag TypeFlag
 		nName uint32
+		firstOffset uint64
+		minDx int64
 	)
 	
 	err := binary.Read(rd, m.order, &typeFlag)
@@ -280,17 +309,26 @@ func (m *LagrangianDelta) Decompress(
 	if err != nil { return nil, err }
 	name := string(bName)
 
-	// Set up buffers
-	m.b = resizeBytes(m.b, len(buf.q))
-	for i := range buf.q { buf.q[i] = 0 }
+	err = binary.Read(rd, m.order, &firstOffset)
+	if err != nil { return nil, err }
+	err = binary.Read(rd, m.order, &minDx)
+	if err != nil { return nil, err }
 
-	// Read data.
-	if err := readCompressedInts(rd, m.b, buf.q); err != nil {
+	// Read data. This is done by adding bytes to buf.u64 one-by-one, so
+	// we need to clear the array first.
+	for i := range buf.u64 { buf.u64[i] = 0 }
+	if err := ReadCompressedInts(rd, buf.b, buf.u64); err != nil {
 		return nil, fmt.Errorf("zlib error while reading block '%s': %s",
 			name, err.Error())
 	}
 
-	return dequantize(name, buf.q, m.delta, typeFlag, buf), nil
+	// Invert the procedures used in Compress.
+	firstDim := ChooseFirstDim(name)
+	slices := MakeDeltaSlices(m.span, firstDim, buf.u64)
+	DeltaDecodeFromSlices(firstOffset, minDx, slices)
+	SlicesToBlock(m.span, firstDim, slices, buf.q)
+
+	return Dequantize(name, buf.q, m.delta, typeFlag, buf), nil
 }
 
 // intToByte transfers a one-byte "column" from u64 to b. The bytes are indexed
@@ -308,7 +346,7 @@ func byteToInt(b []byte, u64 []uint64, col int) {
 	}
 }
 
-// reszieBytes resizes a byte buffer to have length 
+// reszieBytes resizes a byte buffer to have length n.
 func resizeBytes(b []byte, n int) []byte {
 	if cap(b) >= n {
 		b = b[:n]
@@ -320,7 +358,10 @@ func resizeBytes(b []byte, n int) []byte {
 	return b
 }
 
-func writeCompressedInts(q []uint64, b []byte, wr io.Writer) error {
+// writeCompressedInts writes an array of ints, q, to an io.Writer using
+// column-ordered zlib blocks. b is used as a temporary internal buffer 
+// and must be the same length as q. 
+func WriteCompressedInts(q []uint64, b []byte, wr io.Writer) error {
 	if len(q) != len(b) {
 		panic(fmt.Sprintf("Internal error: output byte buffer has length %d," + 
 			" but quantized int array had length %d.", len(b), len(q)))
@@ -342,12 +383,12 @@ func writeCompressedInts(q []uint64, b []byte, wr io.Writer) error {
 	return nil
 }
 
-// readsCompressedInts reads an array of ints, q, from an io.Reader using
+// readCompressedInts reads an array of ints, q, from an io.Reader using
 // column-ordered zlib blocks. b is used as a temporary internal buffer 
 // and must be the same length as q. 
-func readCompressedInts(rd io.Reader, b []byte, q []uint64) error {
+func ReadCompressedInts(rd io.Reader, b []byte, q []uint64) error {
 	if len(q) != len(b) {
-		panic(fmt.Sprintf("Internal error: output byte buffer has length %d," + 
+		panic(fmt.Sprintf("Internal error: input byte buffer has length %d," + 
 			" but quantized int array had length %d.", len(b), len(q)))
 	}
 
@@ -364,4 +405,274 @@ func readCompressedInts(rd io.Reader, b []byte, q []uint64) error {
 	}
 
 	return nil
+}
+
+// splitArray splits the array x into n smaller arrays and writes their slice
+// headers to splits. The length of each array is given by lengths. n =
+// len(lengths) = len(splits).
+func splitArray(x []uint64, lengths []int, splits [][]uint64) {
+	sum := 0
+	for _, n := range lengths { sum += n }
+
+	if sum != len(x) {
+		panic(fmt.Sprintf("Internal error: sum of length = %d, but length " + 
+			"of array is %d.", sum, len(x)))
+	} else if len(lengths) != len(splits) {
+		panic(fmt.Sprintf("Internal error: len(lengths) = %d, len(splits) " + 
+			"= %d.", len(lengths), len(splits)))
+	}
+
+	start := 0
+	for i := range lengths {
+		end := start + lengths[i]
+		splits[i] = x[start: end]
+		start = end
+	}
+}
+
+// DeltaEncode delta encodes the array x into the array out. The element
+// before in is taken to be offset. x and out can be the same array. Since the
+// encoding is done into a uint64 array, both offset, the value before the
+// first value of x, and minDx, the minimum delta between adjacent elements.
+func DeltaEncode(offset uint64, minDx int64, x, out []uint64) {
+	if len(x) != len(out) {
+		panic(fmt.Sprintf("Internal error: len(x) = %d, but len(out) = " + 
+			"%d in deltaEncode", len(x), len(out)))
+	}
+	if len(x) == 0 { return }
+
+	// This is a bit wonky, but you need to do the loop this way to allow
+	// deltaEncode to be called in place and to avoid calling int64() twice.
+
+	prev := int64(x[0])
+	out[0] = uint64(prev - int64(offset) - minDx)
+
+	for i := 1; i < len(x); i++ {
+		next := int64(x[i])
+		out[i] = uint64(next - prev - minDx)
+		prev = next
+	}
+}
+
+// DeltaDecode decodes a integer array encoded with DeltaEncode.
+func DeltaDecode(offset uint64, minDx int64, x, out []uint64) {
+	if len(x) != len(out) {
+		panic(fmt.Sprintf("Internal error: len(x) = %d, but len(out) = " + 
+			"%d in deltaDecode", len(x), len(out)))
+	}
+	if len(x) == 0 { return }
+
+	out[0] = uint64(int64(offset) + int64(x[0]) + minDx)
+	for i := 1; i < len(out); i++ {
+		out[i] = uint64(int64(out[i-1]) + int64(x[i]) + minDx)
+	}
+}
+
+// minDx returns the minimum delta between adjacent elements of x. The first
+// delta is computed between x[0] and offset.
+func minDx(offset uint64, x []uint64) int64 {
+	if len(x) < 2 { return 0 }
+
+	min := int64(x[0]) - int64(offset)
+	for i := 1; i < len(x); i++ {
+		dx := int64(x[i]) - int64(x[i-1])
+		if dx < min { min = dx }
+	}
+
+	return min
+}
+
+// MinDxMulti computes minDx on a sequence of arrays with a given set of
+// offsets.
+func MinDxMulti(offsets []uint64, xs [][]uint64) int64 {
+	if len(xs) == 0 { return 0 }
+
+	min := minDx(offsets[0], xs[0])
+	for i := 1; i < len(xs); i++ {
+		dx := minDx(offsets[i], xs[i])
+		if dx < min { min = dx }
+	}
+
+	return min
+}
+
+// BlockToSlices converts a block of x-major indices into a set of slices
+// which each correspond to a 1-dimensional "skewer" through the block. These
+// are organized so only one actual value needs to be stored for the block.
+// First, one skewer down firstDim, then a face of skewers in the next
+// direciton, and then a block of skewers filling out the rest of the data.
+func BlockToSlices(span [3]int, firstDim int, x, buf []uint64) [][]uint64 {
+	if len(buf) != len(x) {
+		panic(fmt.Sprintf("Internal error: len(x) = %d, but len(buf) = %d",
+			len(x), len(buf)))
+	}
+
+	// You'll probably want a pen and paper when trying to understand this
+	// function. I did my best, sorry!
+
+	out := MakeDeltaSlices(span, firstDim, buf)
+
+	dx := [3]int{ 1, span[0], span[0]*span[1] }
+
+	d1, d2, d3 := firstDim, (firstDim + 1) % 3, (firstDim + 2) % 3
+
+	// i* indexes over the first index of the skewer
+	// j indexes along the skewer
+	// k indexes along the output slices
+
+	// Copy over the first skewer.
+	start := 0*dx[d1] + 0*dx[d2] + 0*dx[d3]
+	for j := 0; j < span[d1]; j++ {
+		out[0][j] = x[start + dx[d1]*j] // Along d1
+	}
+
+	// Copy over the first face.
+	for i1 := 0; i1 < span[d1]; i1++ {
+		k := i1 + 1
+
+		start := i1*dx[d1] + 0*dx[d2] + 0*dx[d3]
+		for i2 := 1; i2 < span[d2]; i2++ {
+			j := i2 - 1 
+			out[k][j] = x[start + dx[d2]*i2]
+		}
+	}
+
+	// Copy over the body of the block.
+	for i2 := 0; i2 < span[d2]; i2++ {
+		for i1 := 0; i1 < span[d1]; i1++ {
+
+			start := i1*dx[d1] + i2*dx[d2] + 1*dx[d3]
+			k := 1 + span[d1] + i1 + i2*span[d1]
+
+			for i3 := 1; i3 < span[d3]; i3++ {
+				j := i3 - 1
+				out[k][j] = x[start + dx[d3]*j]
+			}
+		}
+	}
+
+	return out
+}
+
+// MakeDeltaSlices splits up an array, buf, into slices according to the
+// splitting strategy used by BlockToSlices: first slice has length
+// span[firstDim], next span[firstDim] sliaces have length span[secondDim] - 1,
+// next span[firstDim]*span[secondDim] have length span[thridDim] - 1. 
+func MakeDeltaSlices(span [3]int, firstDim int, buf []uint64) [][]uint64 {
+	lens := sliceLengths(span, firstDim)
+	out := make([][]uint64, len(lens))
+	splitArray(buf, lens, out)
+	return out
+}
+
+// SliceOffsets returns the offset associated with each slice within the
+// overall block.
+func SliceOffsets(x [][]uint64) []uint64 {
+	offsets := make([]uint64, len(x))
+
+	offsets[0] = x[0][0]
+	for i := range x[0] {
+		offsets[i + 1] = x[0][i]
+		offsets[i + len(x[0]) + 1] = x[0][i]
+	}
+
+	for j := range x[1] {
+		for i := range x[0] {
+			offsets[1 + (i + (j+2)*len(x[0]))] = x[1 + i][j]
+		}
+	}
+
+	return offsets
+}
+
+// DeltaDecodeFromSlices runs DeltaDecode on a set of slices. This includes
+// finding the correct offsets.
+func DeltaDecodeFromSlices(firstOffset uint64, minDx int64, x [][]uint64) {
+	DeltaDecode(firstOffset, minDx, x[0], x[0])
+
+	n := len(x[0])
+	for i := range x[0] {
+		DeltaDecode(x[0][i], minDx, x[i + 1], x[i + 1])
+		DeltaDecode(x[0][i], minDx, x[i + n + 1], x[i + n + 1])
+	}
+
+	for j := range x[1] {
+		for i := range x[0] {
+			slice := x[1 + i + (j+2)*n]
+			DeltaDecode(x[1 + i][j], minDx, slice, slice)
+		}
+	}
+}
+
+// SliceLengths gives the lengths of the slices that a given block would
+// be broken into, using firstDim first.
+func sliceLengths(span [3]int, firstDim int) []int {
+	secondDim, thirdDim := (firstDim + 1) % 3, (firstDim + 2) % 3
+	nTot := 1 + span[firstDim] + span[secondDim]*span[firstDim]
+	lens := make([]int, nTot)
+
+	// First array goes down the first dimension of the block.
+	lens[0] = span[firstDim]
+
+	// Next block fills out the face made by the 1st/2nd dims.
+	for i := 1; i < 1 + span[firstDim]; i++ {
+		lens[i] = span[secondDim] - 1
+	}
+
+	// Lastly, fill out the body of the block.
+	for i := 1 + span[firstDim]; i < nTot; i++ {
+		lens[i] = span[thirdDim] - 1
+	}
+
+	return lens
+}
+
+// SlicesToBlock joins a set of slices, x, into a block in out.
+func SlicesToBlock(span [3]int, firstDim int, x [][]uint64, out []uint64) {
+	sum := 0
+	for i := range x { sum += len(x[i]) }
+
+	if len(out) != sum {
+		panic(fmt.Sprintf("Internal error: sum(len(x)) = %d, but len(out) = %d",
+			sum, len(out)))
+	}
+
+	dx := [3]int{ 1, span[0], span[0]*span[1] }
+
+	d1, d2, d3 := firstDim, (firstDim + 1) % 3, (firstDim + 2) % 3
+
+	// i* indexes over the first index of the skewer
+	// j indexes along the skewer
+	// k indexes along the output slices
+
+	// Copy over the first skewer.
+	start := 0*dx[d1] + 0*dx[d2] + 0*dx[d3]
+	for j := 0; j < span[d1]; j++ {
+		out[start + dx[d1]*j] = x[0][j]
+	}
+
+	// Copy over the first face.
+	for i1 := 0; i1 < span[d1]; i1++ {
+		k := i1 + 1
+
+		start := i1*dx[d1] + 0*dx[d2] + 0*dx[d3]
+		for i2 := 1; i2 < span[d2]; i2++ {
+			j := i2 - 1 
+			out[start + dx[d2]*i2] = x[k][j]
+		}
+	}
+
+	// Copy over the body of the block.
+	for i2 := 0; i2 < span[d2]; i2++ {
+		for i1 := 0; i1 < span[d1]; i1++ {
+
+			start := i1*dx[d1] + i2*dx[d2] + 1*dx[d3]
+			k := 1 + span[d1] + i1 + i2*span[d1]
+
+			for i3 := 1; i3 < span[d3]; i3++ {
+				j := i3 - 1
+				out[start + dx[d3]*j] = x[k][j]
+			}
+		}
+	}
 }
