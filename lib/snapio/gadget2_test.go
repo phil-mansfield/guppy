@@ -10,9 +10,11 @@ import (
 )
 
 var (
-	fileName = "../../large_test_data/snapshot_023.39"
+	//fileName = "../../large_test_data/snapshot_023.39"
+	//types = []string{"v32", "v32", "u64"}
+	fileName = "../../large_test_data/L125_sheet333_snap_100.gadget2.dat"
+	types = []string{"v32", "v32", "u32"}
 	names = []string{"x", "v", "id"}
-	types = []string{"v32", "v32", "u64"}
 	order = binary.LittleEndian
 )
 
@@ -45,7 +47,7 @@ func TestGadget2CosmologicalFailure(t *testing.T) {
 		{ []string{"v"}, []string{"f32"} },
 		{ []string{"id"}, []string{"v32"} },
 		{ []string{"x", "x", "id"}, []string{"v32", "v32", "u64"} },
-		{ []string{"x", "v", "id"}, []string{"v32", "v32", "u32"} },
+		{ []string{"x", "v", "id"}, []string{"v32", "v32", "u64"} },
 		{ []string{"x", "v", "id", "phi"},
 			[]string{"v32", "v32", "u32", "f32"} },
 	}
@@ -83,18 +85,20 @@ func TestReadGadget2Header(t *testing.T) {
 		t.Errorf("Expected hd.Names() = %s, got %s", tyExp, ty)
 	}
 
-	nTotExp := int64(1)<<30
+	nTotExp := int64(1)<<21
 	if nTot := hd.NTot(); nTot != nTotExp {
 		t.Errorf("Expected hd.NTot() = %d, got %d.", nTotExp, nTot)
 	}
 
-	zExp := 13.917467933963309
+	//zExp := 13.917467933963309
+	zExp := 2.220446049250313e-16
 	if z := hd.Z(); z != zExp {
-		t.Errorf("Expected hd.z = %f, got %f.", zExp, z)
+		t.Errorf("Expected hd.z = %g, got %g.", zExp, z)
 	}
 
-	omegaMExp := 0.286
-	if omegaM := hd.OmegaM(); omegaM != omegaM {
+	//omegaMExp := 0.284
+	omegaMExp := 0.27
+	if omegaM := hd.OmegaM(); omegaM != omegaMExp {
 		t.Errorf("Expected hd.omegaM = %f, got %f.", omegaMExp, omegaM)
 	}
 
@@ -108,9 +112,10 @@ func TestReadGadget2Header(t *testing.T) {
 		t.Errorf("Expected hd.z = %f, got %f.", LExp, L)
 	}
 
-	mpExp := 1.4439009231682864e+08
+	//mpExp := 1.4439009231682864e+08
+	mpExp := 1.363123249144886e+08
 	if mp := hd.Mass(); mp != mpExp {
-		t.Errorf("Expected hd.Maa = %g, got %g.", mpExp, mp)
+		t.Errorf("Expected hd.Mass = %g, got %g.", mpExp, mp)
 	}
 }
 
@@ -150,35 +155,34 @@ func TestReadGadget2Data(t *testing.T) {
 	if !ok { t.Fatalf("Incorrect type for buf.Get('x')") }
 	v, ok := vIntr.([][3]float32)
 	if !ok { t.Fatalf("Incorrect type for buf.Get('v')") }
-	id, ok := idIntr.([]uint64)
+	id, ok := idIntr.([]uint32)
 	if !ok { t.Fatalf("Incorrect type for buf.Get('id')") }
 
 	xExp := [][3]float32{
-		{101.70, 93.76, 54.62},
-		{101.69, 93.74, 54.52},
-		{101.70, 93.62, 54.49},
-		{101.71, 93.65, 54.60},
-		{101.81, 93.65, 54.61},
+		{40.132, 48.393, 53.661},
+		{40.144, 48.392, 53.669},
+		{40.121, 48.402, 53.645},
+		{39.992, 48.445, 53.551},
+		{40.309, 48.489, 53.489},
 	}
 	vExp := [][3]float32{
-		{113.47, 3.75, 41.97},
-		{108.05, -7.03, 58.02},
-		{115.16, -7.33, 39.29},
-		{119.56, 10.11, 30.37},
-		{106.54, 13.20, 37.18},
+		{-362.558, 16.940, 270.355},
+		{-387.645, 53.772, 288.557},
+		{-395.702, 40.182, 283.108},
+		{-396.361, 29.525, 273.395},
+		{-374.629, 48.873, 265.934},
 	}
-	idExp := []uint64{873202112, 873202111, 873201087, 873201088, 874249664}
-
+	idExp := []uint32{6340992, 6340993, 6340994, 6340995, 6340996}
 	if !vecsAlmostEq(x[:5], xExp) {
-		t.Errorf("Expected first five position vectors to be %.2f, got %.2f",
-			x[:5], xExp)
+		t.Errorf("Expected first five position vectors to be %.3f, got %.3f",
+			xExp, x[:5])
 	} 
 	if !vecsAlmostEq(v[:5], vExp) {
-		t.Errorf("Expected first five velcotiy vectors to be %.2f, got %.2f",
-			v[:5], vExp)
+		t.Errorf("Expected first five velcotiy vectors to be %.3f, got %.3f",
+			vExp, v[:5])
 	}
-	if !eq.Uint64s(id[:5], idExp) {
-		t.Errorf("Expected first five IDs to be %d, got %d.", id[:5], idExp)
+	if !eq.Uint32s(id[:5], idExp) {
+		t.Errorf("Expected first five IDs to be %d, got %d.", idExp, id[:5])
 	}
 }
 
