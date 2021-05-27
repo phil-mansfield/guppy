@@ -163,6 +163,8 @@ func Dequantize(
 
 // Method is an interface representing a compression method.
 type Method interface {
+	MethodFlag() MethodFlag
+
 	// WriteInfo writes initialization information to a Writer.
 	WriteInfo(wr io.Writer) error
 	// ReadInfo reads initialization information from a Reader.
@@ -201,10 +203,16 @@ func NewLagrangianDelta(
 	return &LagrangianDelta{ order, span, nTot, dir, delta }
 }
 
+func (m *LagrangianDelta) MethodFlag() MethodFlag {
+	return LagrangianDeltaFlag
+}
+
 func (m *LagrangianDelta) WriteInfo(wr io.Writer) error {
 	span64 := [3]uint64{uint64(m.span[0]), uint64(m.span[1]), uint64(m.span[2])}
 	
-	err := binary.Write(wr, m.order, span64)
+	err := binary.Write(wr, m.order, LagrangianDeltaFlag)
+	if err != nil { return err }
+	err = binary.Write(wr, m.order, span64)
 	if err != nil { return err}
 	err = binary.Write(wr, m.order, uint64(m.dir))
 	if err != nil { return err }
@@ -213,12 +221,20 @@ func (m *LagrangianDelta) WriteInfo(wr io.Writer) error {
 }
 
 func (m *LagrangianDelta) ReadInfo(order binary.ByteOrder, rd io.Reader) error {
+	var flag MethodFlag
+	err := binary.Read(rd, order, &flag)
+	if flag != LagrangianDeltaFlag {
+		return fmt.Errorf("Mismatch between the Method type used to " + 
+			"decompress block and the Method type used to compress it. Block " + 
+			"was compressed with LagrangianDelta (flag = %d), but block flag " + 
+			"was %d.", LagrangianDeltaFlag, flag)
+	}
+
 	m.order = order
-	
 	span64 := [3]uint64{ }
 	dir64 := uint64(0)
 
-	err := binary.Read(rd, m.order, &span64)
+	err = binary.Read(rd, m.order, &span64)
 	if err != nil { return err }
 	err = binary.Read(rd, m.order, &dir64)
 	if err != nil { return err }
