@@ -56,6 +56,8 @@ func NewWriter(
 // Add field adds a new field to the file which will be compressed with
 // a given method.
 func (wr *Writer) AddField(field particles.Field, method Method) error {
+	method.SetOrder(wr.order)
+
 	err := method.WriteInfo(wr.header)
 	if err != nil { return err }
 
@@ -153,23 +155,30 @@ type Reader struct {
 	names []string
 	methodFlags []MethodFlag
 	buf *Buffer
+
+	// I don't udnerstand why, but Go's zlib library crashes if I read directly
+	// from disk, but not if I read into a bytes.Buffer and then decompress the
+	// buffer.
+	midBuf []byte
 }
 
 // NewReader creates a new Reader associated with the given gile and uses
-// the given buffer to avoid unneccessary heap allocation.
-func NewReader(fname string, buf *Buffer) (*Reader, error) {
+// the given buffers to avoid unneccessary heap allocation.
+func NewReader(
+	fname string, buf *Buffer, midBuf []byte,
+) (*Reader, error) {
 	f, err := os.Open(fname)
 	if err != nil { return nil, err }
 
 	order, err := checkFile(fname, f)
 	if err != nil { return nil, err }
 
-	var nFields uint64
+	var nFields uint32
 	err = binary.Read(f, order, &nFields)
 
 	rd := &Reader{
-		fname, f, order, make([]int64, nFields), make([]int64, nFields),
-		make([]string, nFields), make([]MethodFlag, nFields), buf,
+		fname, f, order, make([]int64, nFields+1), make([]int64, nFields+1),
+		make([]string, nFields), make([]MethodFlag, nFields), buf, midBuf,
 	}
 	nNames := make([]uint32, nFields)
 
@@ -196,14 +205,14 @@ func NewReader(fname string, buf *Buffer) (*Reader, error) {
 }
 
 func (rd *Reader) Names() []string { return rd.names }
-func (rd *Reader) MethodFlags() []MethodFlag {return rd.methodFlags }
 
 // ReadField reads a field from the reader using the given method. (Note: use
-// Names() and MethodFlags() to find these.)
-func (rd *Reader) ReadField(
-	name string, method Method,
-) (particles.Field, error) {
-	
+// Names() to find these.)
+//
+// NOTE: ReadField uses the array space in Buffer to allocate the Field. If you
+// want to call ReadField again, YOU WILL NEED TO COPY THE DATA OUT OF THE FIELD
+// and into your own locally-allocated array or you could lose it.
+func (rd *Reader) ReadField(name string) (particles.Field, error) {
 	i := findString(rd.names, name)
 	if i == -1 { 
 		return nil, fmt.Errorf("The field '%s' is not in the compressed " +
@@ -216,18 +225,47 @@ func (rd *Reader) ReadField(
 	_, err := rd.f.Seek(headerOffset, 0)
 	if err != nil { return nil, err }
 
+	// Select the method used
+	method := selectMethod(rd.methodFlags[i])
+
 	err = method.ReadInfo(rd.order, rd.f)
 	if err != nil { return nil, err}
 
 	_, err = rd.f.Seek(dataOffset, 0)
 	if err != nil { return nil, err }
 
-	return method.Decompress(rd.buf, rd.f)
+	// Some trickery due to the way Go's zlib library handles reading from
+	// disk. I still don't understand why direct disk reads fail...
+	// But this does have another benefit: it prevents the disk from being
+	// locked while zlib is doing slow calculations.
+	n := rd.dataEdges[i+1] - rd.dataEdges[i]
+	rd.midBuf = resizeBytes(rd.midBuf, int(n))
+	_, err = rd.f.Read(rd.midBuf)
+	if err != nil { return nil, err }
+
+	midBuf := bytes.NewBuffer(rd.midBuf)
+	return method.Decompress(rd.buf, midBuf)
 }
 
 // Close closes the files associated with the Reader.
 func (rd *Reader) Close() {
 	rd.f.Close()
+}
+
+// ReuseMidBuf returns the midBuf used by the Reader so that it can be used by
+// a later reader without excess heap allocation.  
+func (rd *Reader) ReuseMidBuf() []byte {
+	return rd.midBuf[:0]
+}
+
+func selectMethod(flag MethodFlag) Method {
+	switch flag {
+	case LagrangianDeltaFlag: return &LagrangianDelta{ }
+	default:
+		panic(fmt.Sprintf("The method flag %d isn't recognized by " + 
+			"Reader.ReadField. This is almost certianly an internal error, " + 
+			"where part of the .", flag))
+	}
 }
 
 // findString returns the index of the first instance of target in x and -1 if
@@ -243,7 +281,7 @@ func findString(x []string, target string) int {
 // sure that guppy can actually read it. If it can, the byte order is returned.
 // Otherwise an error is returned.
 func checkFile(fname string, f *os.File) (binary.ByteOrder, error) {
-	var magicNumber, version uint64
+	var magicNumber, version uint32
 
 	// Read the magic number and check that this is actually a guppy file.
 	order := binary.ByteOrder(binary.LittleEndian)

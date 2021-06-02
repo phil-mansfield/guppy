@@ -5,6 +5,10 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"testing"
+	//"fmt"
+	//"os"
+	//"io"
+	//"compress/zlib"
 
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
@@ -45,6 +49,38 @@ func TestBuffer(t *testing.T) {
 	}
 }
 
+func TestReadCompressedInts(t *testing.T) {
+	buf := bytes.NewBuffer([]byte{ })
+
+	byteHelloWorld := []byte("hello, world\n")
+	intHelloWorld := make([]int64, len(byteHelloWorld))
+	for i := range intHelloWorld { intHelloWorld[i] = int64(byteHelloWorld[i]) }
+
+	tests := [][]int64{ { }, {1},  {0, 1, 2, 3, 4, 5}, intHelloWorld}
+
+	for i := range tests {
+		bIn := make([]byte, len(tests[i]))
+		bOut := make([]byte, len(tests[i]))
+		out := make([]int64, len(tests[i]))
+
+		err := WriteCompressedInts(tests[i], bIn, buf)
+		if err != nil { 
+			t.Errorf(err.Error())
+			continue
+		}
+
+		bOut, err = ReadCompressedInts(buf, bOut, out)
+		if err != nil { 
+			t.Errorf(err.Error())
+			continue
+		}
+
+		if !eq.Int64s(out, tests[i]) {
+			t.Errorf("%d) %d decompressed to %d.", i, tests[i], out)
+		}
+	}
+}
+
 func TestQuantize(t *testing.T) {
 	name := "meow"
 	
@@ -63,7 +99,7 @@ func TestQuantize(t *testing.T) {
 			[]float32{1, 1.5, 2, 0, 4, 5.5, 6}), 1e-3},
 		{particles.NewFloat64(name,
 			[]float64{1, 1.5, 2, 0, 4, 5.5, 6}), 1e-3},
-
+		{particles.NewFloat64(name, []float64{-1, -2, -3, -4}), 1e-3},
 	}
 
 	buf := NewBuffer(0)
@@ -129,27 +165,28 @@ func TestLagrangianDelta(t *testing.T) {
 
 	tests := []struct{
 		span [3]int
-		dir int
+		name string
 		delta float64
 		data interface{}
 	} {
-		{ [3]int{2, 2, 2}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{1, 1, 8}, 0, 0, []uint32{1, 2, 3, 4, 5, 6, 7, 0} },
-		{ [3]int{1, 8, 1}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{8, 1, 1}, 0, 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{2, 2, 2}, 0, 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{2, 2, 2}, 0, 1e-4, []float32{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{2, 2, 2}, 0, 1e-4, []float64{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{32, 16, 8}, 2, 1e-4, lastTestData},
-	}
+		{ [3]int{2, 2, 2}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{1, 1, 8}, "meow", 0, []uint32{1, 2, 3, 4, 5, 6, 7, 0} },
+		{ [3]int{1, 8, 1}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{8, 1, 1}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{2, 2, 2}, "meow", 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{2, 2, 2}, "meow", 1e-4, []float32{0, 1, 2, 4, 4, 5, 4, 0} },
+		{ [3]int{2, 2, 2}, "meow", 1e-4, []float64{0, 1, 2, 4, 4, 5, 6, 0} },
+		{ [3]int{32, 16, 8}, "meow", 1e-4, lastTestData},
+		{ [3]int{32, 16, 8}, "meow[0]", 1e-4, lastTestData},
+		{ [3]int{32, 16, 8}, "meow[1]", 1e-4, lastTestData},
+		{ [3]int{32, 16, 8}, "meow[2]", 1e-4, lastTestData},
+	}[:7]
 
 	buf := NewBuffer(0)
 	for i := range tests {
-
-		m := NewLagrangianDelta(
-			order, tests[i].span, tests[i].dir, tests[i].delta,
-		)
-		f, err := particles.NewGenericField("meow", tests[i].data)
+		m := NewLagrangianDelta(tests[i].span, tests[i].delta)
+		m.SetOrder(order)
+		f, err := particles.NewGenericField(tests[i].name, tests[i].data)
 		if err != nil { t.Errorf(err.Error()) }
 		wr := bytes.NewBuffer(make([]byte, 0, 0))
 
@@ -187,23 +224,20 @@ func TestLagrangianDelta(t *testing.T) {
 			t.Errorf("%d) Expected span = %d, got %d.",
 				i, tests[i].span, mOut.span)
 			continue
-		} else if mOut.dir != tests[i].dir {
-			t.Errorf("%d) Expected dir = %d, got %d.",
-				i, tests[i].dir, mOut.dir)
-			continue
 		} else if mOut.delta != tests[i].delta {
 			t.Errorf("%d) Expected delta = %g, got %g.",
 				i, tests[i].delta, mOut.delta)
 			continue
 		}
 
-		if fOut.Name() != "meow" {
+		if fOut.Name() != tests[i].name {
 			t.Errorf("%d) Expected field name '%s', got '%s'.",
 				i, "meow", fOut.Name())
 			continue
 		}
 		
 		x := fOut.Data()
+
 		dataEqual := false
 		switch d := tests[i].data.(type) {
 		case []uint32: dataEqual = eq.Generic(d, x)
@@ -230,43 +264,43 @@ func TestLagrangianDelta(t *testing.T) {
 
 func TestSplitArray(t *testing.T) {
 	tests := []struct{
-		x []uint64
+		x []int64
 		lens []int
-		splits [][]uint64
+		splits [][]int64
 	} {
 		{
-			[]uint64{},
+			[]int64{},
 			[]int{},
-			[][]uint64{},
+			[][]int64{},
 		},
 		{
-			[]uint64{},
+			[]int64{},
 			[]int{},
-			[][]uint64{{}},
+			[][]int64{{}},
 		},
 		{
-			[]uint64{1},
+			[]int64{1},
 			[]int{1},
-			[][]uint64{{1}},
+			[][]int64{{1}},
 		},
 		{
-			[]uint64{1},
+			[]int64{1},
 			[]int{0, 1, 0},
-			[][]uint64{{}, {1}, {}},
+			[][]int64{{}, {1}, {}},
 		},
 		{
-			[]uint64{1, 1, 1, 1, 2, 2, 3, 3, 3},
+			[]int64{1, 1, 1, 1, 2, 2, 3, 3, 3},
 			[]int{4, 2, 3},
-			[][]uint64{{1, 1, 1, 1}, {2, 2}, {3, 3, 3}},
+			[][]int64{{1, 1, 1, 1}, {2, 2}, {3, 3, 3}},
 		},
 	}
 
 	for i := range tests {
-		splits := make([][]uint64, len(tests[i].lens))
+		splits := make([][]int64, len(tests[i].lens))
 		splitArray(tests[i].x, tests[i].lens, splits)
 
 		for j := range splits {
-			if !eq.Uint64s(splits[j], tests[i].splits[j]) {
+			if !eq.Int64s(splits[j], tests[i].splits[j]) {
 				t.Errorf("%d) Expected spliArray(%d, %d) = %d, got %d.",
 					i, tests[i].x, tests[i].lens, tests[i].splits, splits)
 				 continue
@@ -277,26 +311,27 @@ func TestSplitArray(t *testing.T) {
 
 func TestDeltaEncode(t *testing.T) {
 	tests := []struct{
-		offset uint64
+		offset int64
 		minDx int64
-		x, out []uint64
+		x, out []int64
 	} {
-		{0, 0, []uint64{}, []uint64{}},
-		{0, 0, []uint64{10}, []uint64{10}},
-		{10, 0, []uint64{10}, []uint64{0}},
-		{0, 5, []uint64{10}, []uint64{5}},
-		{0, 0, []uint64{1, 5, 5, 10, 16, 20}, []uint64{1, 4, 0, 5, 6, 4}},
-		{0, -2, []uint64{1, 5, 5, 10, 16, 20}, []uint64{3, 6, 2, 7, 8, 6}},
-		{10, -10, []uint64{5, 12, 10, 0}, []uint64{5, 17, 8, 0}},
+		{0, 0, []int64{}, []int64{}},
+		{0, 0, []int64{10}, []int64{10}},
+		{10, 0, []int64{10}, []int64{0}},
+		{0, 5, []int64{10}, []int64{5}},
+		{0, 0, []int64{1, 5, 5, 10, 16, 20}, []int64{1, 4, 0, 5, 6, 4}},
+		{0, -2, []int64{1, 5, 5, 10, 16, 20}, []int64{3, 6, 2, 7, 8, 6}},
+		{10, -10, []int64{5, 12, 10, 0}, []int64{5, 17, 8, 0}},
+		{-10, 0, []int64{-9, -8, 0, 1, -8, -9}, []int64{1, 1, 8, 1, -9, -1}},
 	}
 
 	for i := range tests {
-		x := make([]uint64, len(tests[i].x))
+		x := make([]int64, len(tests[i].x))
 		for j := range x { x[j] = tests[i].x[j] }
 
 		DeltaEncode(tests[i].offset, tests[i].minDx, x, x)
 
-		if !eq.Uint64s(tests[i].out, x) {
+		if !eq.Int64s(tests[i].out, x) {
 			t.Errorf("%d) Expected deltaEncode(offset=%d, minDx=%d, x=%d) to " + 
 				"be %d, but got %d.", i, tests[i].offset, tests[i].minDx,
 				tests[i].x, tests[i].out, x)
@@ -306,26 +341,27 @@ func TestDeltaEncode(t *testing.T) {
 
 func TestDeltaDecode(t *testing.T) {
 	tests := []struct{
-		offset uint64
+		offset int64
 		minDx int64
-		x, out []uint64
+		x, out []int64
 	} {
-		{0, 0, []uint64{}, []uint64{}},
-		{0, 0, []uint64{10}, []uint64{10}},
-		{10, 0, []uint64{0}, []uint64{10}},
-		{0, 5, []uint64{5}, []uint64{10}},
-		{0, 0, []uint64{1, 4, 0, 5, 6, 4}, []uint64{1, 5, 5, 10, 16, 20}},
-		{0, -2, []uint64{3, 6, 2, 7, 8, 6}, []uint64{1, 5, 5, 10, 16, 20}},
-		{10, -10, []uint64{5, 17, 8, 0}, []uint64{5, 12, 10, 0}},
+		{0, 0, []int64{}, []int64{}},
+		{0, 0, []int64{10}, []int64{10}},
+		{10, 0, []int64{0}, []int64{10}},
+		{0, 5, []int64{5}, []int64{10}},
+		{0, 0, []int64{1, 4, 0, 5, 6, 4}, []int64{1, 5, 5, 10, 16, 20}},
+		{0, -2, []int64{3, 6, 2, 7, 8, 6}, []int64{1, 5, 5, 10, 16, 20}},
+		{10, -10, []int64{5, 17, 8, 0}, []int64{5, 12, 10, 0}},
+		{-10, 0, []int64{1, 1, 8, 1, -9, -1}, []int64{-9, -8, 0, 1, -8, -9}},
 	}
 
 	for i := range tests {
-		x := make([]uint64, len(tests[i].x))
+		x := make([]int64, len(tests[i].x))
 		for j := range x { x[j] = tests[i].x[j] }
 
 		DeltaDecode(tests[i].offset, tests[i].minDx, x, x)
 
-		if !eq.Uint64s(tests[i].out, x) {
+		if !eq.Int64s(tests[i].out, x) {
 			t.Errorf("%d) Expected deltaDecode(offset=%d, minDx=%d, x=%d) to " + 
 				"be %d, but got %d.", i, tests[i].offset, tests[i].minDx,
 				tests[i].x, tests[i].out, x)
@@ -334,7 +370,7 @@ func TestDeltaDecode(t *testing.T) {
 }
 
 func TestBlockToSlices(t *testing.T) {
-	block0 := []uint64{
+	block0 := []int64{
 		0, 0, 0, 0, 0,
 		1, 2, 3, 4, 5,
 		1, 2, 3, 4, 5,
@@ -350,7 +386,7 @@ func TestBlockToSlices(t *testing.T) {
 		16, 17, 18, 19, 20,
 		21, 22, 23, 24, 25,
 	}
-	buf := make([]uint64, len(block0))
+	buf := make([]int64, len(block0))
 	span := [3]int{ 5, 4, 3 }
 	slices := BlockToSlices(span, 0, block0, buf)
 
@@ -367,13 +403,13 @@ func TestBlockToSlices(t *testing.T) {
 		}
 
 		for j := range slices[i] {
-			if slices[i][j] != uint64(i) {
+			if slices[i][j] != int64(i) {
 				t.Errorf("Block 0: slice %d = %d", i, slices[i])
 			}
 		}
 	}
 
-	block1 := []uint64{
+	block1 := []int64{
 		 0,  1,  1,  1,  1, 
 		 4,  7, 10, 13, 16,
 		 4,  7, 10, 13, 16,
@@ -390,7 +426,7 @@ func TestBlockToSlices(t *testing.T) {
 		 6,  9, 12, 15, 18,
 	}
 
-	buf = make([]uint64, len(block1))
+	buf = make([]int64, len(block1))
 	span = [3]int{ 5, 4, 3 }
 	slices = BlockToSlices(span, 2, block1, buf)
 
@@ -407,7 +443,7 @@ func TestBlockToSlices(t *testing.T) {
 		}
 
 		for j := range slices[i] {
-			if slices[i][j] != uint64(i) {
+			if slices[i][j] != int64(i) {
 				t.Errorf("Block 1: slice %d = %d", i, slices[i])
 			}
 		}
@@ -416,10 +452,10 @@ func TestBlockToSlices(t *testing.T) {
 
 func TestSlicesToBlock(t *testing.T) {
 	span := [3]int{ 5, 4, 3 }
-	block := make([]uint64, span[0]*span[1]*span[2])
-	buf := make([]uint64, len(block))
-	result := make([]uint64, len(block))
-	for i := range block { block[i] = uint64(i) }
+	block := make([]int64, span[0]*span[1]*span[2])
+	buf := make([]int64, len(block))
+	result := make([]int64, len(block))
+	for i := range block { block[i] = int64(i) }
 
 	for firstDim := 0; firstDim < 3; firstDim++ {
 		for i := range result { result[i] = 0 }
@@ -427,7 +463,7 @@ func TestSlicesToBlock(t *testing.T) {
 		slices := BlockToSlices(span, firstDim, block, buf)
 		SlicesToBlock(span, firstDim, slices, result)
 
-		if !eq.Uint64s(result, block) {
+		if !eq.Int64s(result, block) {
 			t.Errorf("Output block is %d, but input block was %d",
 				result, block)
 		}
@@ -457,7 +493,7 @@ func TestChooseFirstDim(t *testing.T) {
 }
 
 func TestSliceOffsets(t *testing.T) {
-	block0 := []uint64{
+	block0 := []int64{
 		30, 31, 32, 33, 34,
 		 1,  2,  3,  4,  5,
 		 1,  2,  3,  4,  5,
@@ -474,11 +510,11 @@ func TestSliceOffsets(t *testing.T) {
 		21, 22, 23, 24, 25,
 	}
 
-	buf := make([]uint64, len(block0))
+	buf := make([]int64, len(block0))
 	span := [3]int{ 5, 4, 3 }
 	slices := BlockToSlices(span, 0, block0, buf)
 
-	offsets := []uint64{
+	offsets := []int64{
 		30,
 		30, 31, 32, 33, 34,
 		30, 31, 32, 33, 34,
@@ -489,11 +525,11 @@ func TestSliceOffsets(t *testing.T) {
 
 	testOffsets := SliceOffsets(slices)
 
-	if !eq.Uint64s(offsets, testOffsets) {
+	if !eq.Int64s(offsets, testOffsets) {
 		t.Errorf("Expected offsets = %d, got %d", offsets, testOffsets)
 	}
 
-	block1 := []uint64{
+	block1 := []int64{
 		 30,  1, 11, 21, 31, 
 		  4,  7, 10, 13, 16,
 		  4,  7, 10, 13, 16,
@@ -510,10 +546,10 @@ func TestSliceOffsets(t *testing.T) {
 		  6,  9, 12, 15, 18,
 	}
 
-	buf = make([]uint64, len(block1))
+	buf = make([]int64, len(block1))
 	slices = BlockToSlices(span, 2, block1, buf)
 
-	offsets = []uint64{
+	offsets = []int64{
 		30,
 		30, 31, 32,
 		30, 31, 32,
@@ -525,7 +561,7 @@ func TestSliceOffsets(t *testing.T) {
 
 	testOffsets = SliceOffsets(slices)
 
-	if !eq.Uint64s(offsets, testOffsets) {
+	if !eq.Int64s(offsets, testOffsets) {
 		t.Errorf("Expected offsets = %d, got %d", offsets, testOffsets)
 	}
 }

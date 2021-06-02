@@ -7,6 +7,7 @@ import (
 	"compress/zlib"
 	"fmt"
 	"strings"
+	"bytes"
 
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
@@ -48,7 +49,10 @@ type Buffer struct {
 	u64 []uint64
 	f32 []float32
 	f64 []float64
-	q []uint64 // This one is specifically for quanitzation.
+
+	// These two buffers are specifically for quantiazation and encoding.
+	i64 []int64
+	q []int64
 	rng *RNG
 }
 
@@ -77,11 +81,18 @@ func (buf *Buffer) Resize(n int) {
 		buf.u64 = append(buf.u64, make([]uint64, n - len(buf.u64))...)
 	}
 
+	if cap(buf.i64) >= n {
+		buf.i64 = buf.i64[:n]
+	} else {
+		buf.i64 = buf.i64[:cap(buf.i64)]
+		buf.i64 = append(buf.i64, make([]int64, n - len(buf.i64))...)
+	}
+
 	if cap(buf.q) >= n {
 		buf.q = buf.q[:n]
 	} else {
 		buf.q = buf.q[:cap(buf.q)]
-		buf.q = append(buf.q, make([]uint64, n - len(buf.q))...)
+		buf.q = append(buf.q, make([]int64, n - len(buf.q))...)
 	}
 
 	if cap(buf.f32) >= n {
@@ -102,26 +113,28 @@ func (buf *Buffer) Resize(n int) {
 // NewBuffer creates a new, resizable Buffer,
 func NewBuffer(seed uint64) *Buffer {
 	return &Buffer{ []byte{ }, []uint32{ }, []uint64{ },
-		[]float32{ }, []float64{ }, []uint64{ }, NewRNG(seed) }
+		[]float32{ }, []float64{ }, []int64{ }, []int64{ }, NewRNG(seed) }
 }
 
 // quantize comverts an array to []uin64 and write it to out. If the array is
 // floating point, it is stored to an accuracy of delta.
-func Quantize(f particles.Field, delta float64, out []uint64) {
+func Quantize(f particles.Field, delta float64, out []int64) {
 	// TODO: calling math.Fllor here is much slower than it needs to be.
 	// Replace with conditionals.
 	switch x := f.Data().(type) {
 	case []uint64:
-		for i := range out { out[i] = x[i] }
+		for i := range out { out[i] = int64(x[i]) }
 	case []uint32:
-		for i := range out { out[i] = uint64(x[i]) }
+		for i := range out { out[i] = int64(x[i]) }
 	case []float32:
 		delta32 := float32(delta)
 		for i := range x {
-			out[i] = uint64(math.Floor(float64(x[i] / delta32)))
+			out[i] = int64(math.Floor(float64(x[i] / delta32)))
 		}
 	case []float64:
-		for i := range x { out[i] = uint64(math.Floor(x[i] / delta)) }
+		for i := range x {
+			out[i] = int64(math.Floor(x[i] / delta))
+		}
 	default:
 		panic("'Impossible' type configuration.")
 	}
@@ -132,7 +145,7 @@ func Quantize(f particles.Field, delta float64, out []uint64) {
 // used instead. Assumes that buf has been resized to the same length as
 // q.
 func Dequantize(
-	name string, q []uint64, delta float64, typeFlag TypeFlag, buf *Buffer,
+	name string, q []int64, delta float64, typeFlag TypeFlag, buf *Buffer,
 ) particles.Field {
 	var f particles.Field
 	switch typeFlag {
@@ -140,7 +153,7 @@ func Dequantize(
 		for i := range buf.u32 { buf.u32[i] = uint32(q[i]) }
 		f = particles.NewUint32(name, buf.u32)
 	case Uint64Flag:
-		for i := range buf.u64 { buf.u64[i] = q[i] }
+		for i := range buf.u64 { buf.u64[i] = uint64(q[i]) }
 		f = particles.NewUint64(name, buf.u64)
 	case Float32Flag:
 		buf.rng.UniformSequence(buf.f64)
@@ -164,6 +177,7 @@ func Dequantize(
 // Method is an interface representing a compression method.
 type Method interface {
 	MethodFlag() MethodFlag
+	SetOrder(order binary.ByteOrder)
 
 	// WriteInfo writes initialization information to a Writer.
 	WriteInfo(wr io.Writer) error
@@ -187,7 +201,7 @@ type Method interface {
 type LagrangianDelta struct {
 	order binary.ByteOrder
 	span [3]int
-	nTot, dir int
+	nTot int
 	delta float64
 }
 
@@ -196,12 +210,12 @@ type LagrangianDelta struct {
 // will be done along the dimension, dir (0 -> x, 1-> y, etc.), and floating
 // point data will be encoded such that values are stored to within at least
 // delta of their starting positions.
-func NewLagrangianDelta(
-	order binary.ByteOrder, span [3]int, dir int, delta float64,
-) *LagrangianDelta {
+func NewLagrangianDelta(span [3]int, delta float64) *LagrangianDelta {
 	nTot := span[0]*span[1]*span[2]
-	return &LagrangianDelta{ order, span, nTot, dir, delta }
+	return &LagrangianDelta{ binary.LittleEndian, span, nTot, delta }
 }
+
+func (m *LagrangianDelta) SetOrder(order binary.ByteOrder) { m.order = order }
 
 func (m *LagrangianDelta) MethodFlag() MethodFlag {
 	return LagrangianDeltaFlag
@@ -213,8 +227,6 @@ func (m *LagrangianDelta) WriteInfo(wr io.Writer) error {
 	err := binary.Write(wr, m.order, LagrangianDeltaFlag)
 	if err != nil { return err }
 	err = binary.Write(wr, m.order, span64)
-	if err != nil { return err}
-	err = binary.Write(wr, m.order, uint64(m.dir))
 	if err != nil { return err }
 	err = binary.Write(wr, m.order, m.delta)
 	return err
@@ -232,17 +244,13 @@ func (m *LagrangianDelta) ReadInfo(order binary.ByteOrder, rd io.Reader) error {
 
 	m.order = order
 	span64 := [3]uint64{ }
-	dir64 := uint64(0)
 
 	err = binary.Read(rd, m.order, &span64)
-	if err != nil { return err }
-	err = binary.Read(rd, m.order, &dir64)
 	if err != nil { return err }
 	err = binary.Read(rd, m.order, &m.delta)
 	if err != nil {return err }
 
 	m.span = [3]int{ int(span64[0]), int(span64[1]), int(span64[2]) }
-	m.dir = int(dir64)
 	m.nTot = m.span[0]*m.span[1]*m.span[2]
 	return nil
 }
@@ -269,7 +277,7 @@ func (m *LagrangianDelta) Compress(
 	if err != nil { return err }
 
 	firstDim := ChooseFirstDim(f.Name())
-	slices := BlockToSlices(m.span, firstDim, buf.q, buf.u64)
+	slices := BlockToSlices(m.span, firstDim, buf.q, buf.i64)
 	offsets := SliceOffsets(slices)
 	minDx := MinDxMulti(offsets, slices)
 
@@ -277,13 +285,13 @@ func (m *LagrangianDelta) Compress(
 	err = binary.Write(wr, m.order, minDx)
 	if err != nil { return err }
 
-	// Replace each slice with its deltas. This modifies buf.u64.
+	// Replace each slice with its deltas. This modifies buf.i64.
 	for i := range slices {
 		DeltaEncode(offsets[i], minDx, slices[i], slices[i])
 	}
 
 	// Write to disk.
-	if err := WriteCompressedInts(buf.u64, buf.b, wr); err != nil {
+	if err := WriteCompressedInts(buf.i64, buf.b, wr); err != nil {
 		return fmt.Errorf("zlib error while writing block '%s': %s",
 			f.Name(), err.Error())
 	}
@@ -311,7 +319,7 @@ func (m *LagrangianDelta) Decompress(
 	var (
 		typeFlag TypeFlag
 		nName uint32
-		firstOffset uint64
+		firstOffset int64
 		minDx int64
 	)
 	
@@ -330,17 +338,18 @@ func (m *LagrangianDelta) Decompress(
 	err = binary.Read(rd, m.order, &minDx)
 	if err != nil { return nil, err }
 
-	// Read data. This is done by adding bytes to buf.u64 one-by-one, so
+	// Read data. This is done by adding bytes to buf.i64 one-by-one, so
 	// we need to clear the array first.
-	for i := range buf.u64 { buf.u64[i] = 0 }
-	if err := ReadCompressedInts(rd, buf.b, buf.u64); err != nil {
+	for i := range buf.i64 { buf.i64[i] = 0 }
+	buf.b, err = ReadCompressedInts(rd, buf.b, buf.i64)
+	if err != nil {
 		return nil, fmt.Errorf("zlib error while reading block '%s': %s",
 			name, err.Error())
 	}
 
 	// Invert the procedures used in Compress.
 	firstDim := ChooseFirstDim(name)
-	slices := MakeDeltaSlices(m.span, firstDim, buf.u64)
+	slices := MakeDeltaSlices(m.span, firstDim, buf.i64)
 	DeltaDecodeFromSlices(firstOffset, minDx, slices)
 	SlicesToBlock(m.span, firstDim, slices, buf.q)
 
@@ -348,17 +357,18 @@ func (m *LagrangianDelta) Decompress(
 }
 
 // intToByte transfers a one-byte "column" from u64 to b. The bytes are indexed
-// from least to most significant.
-func intToByte(u64 []uint64, b []byte, col int) {
-	for i := range u64 {
-		b[i] = byte((u64[i] >> (8*col)) & 0xff)
+// from least to most significant. int64's are used here, but they will always
+// be positive.
+func intToByte(i64 []int64, b []byte, col int) {
+	for i := range i64 {
+		b[i] = byte((uint64(i64[i]) >> (8*col)) & 0xff)
 	}
 }
 
 // byteToInt adds a one-byte column
-func byteToInt(b []byte, u64 []uint64, col int) {
+func byteToInt(b []byte, i64 []int64, col int) {
 	for i := range b {
-		u64[i] += uint64(b[i]) << (8*col)
+		i64[i] += int64(uint64(b[i]) << (8*col))
 	}
 }
 
@@ -377,11 +387,12 @@ func resizeBytes(b []byte, n int) []byte {
 // writeCompressedInts writes an array of ints, q, to an io.Writer using
 // column-ordered zlib blocks. b is used as a temporary internal buffer 
 // and must be the same length as q. 
-func WriteCompressedInts(q []uint64, b []byte, wr io.Writer) error {
+func WriteCompressedInts(q []int64, b []byte, wr io.Writer) error {
 	if len(q) != len(b) {
 		panic(fmt.Sprintf("Internal error: output byte buffer has length %d," + 
 			" but quantized int array had length %d.", len(b), len(q)))
 	}
+	_ = bytes.NewBuffer([]byte{})
 	for i := 0; i < 8; i++ {
 		// We need to create a new Writer each loop so a different codex is
 		// used for the different columns, letting the high-significance bits
@@ -390,43 +401,45 @@ func WriteCompressedInts(q []uint64, b []byte, wr io.Writer) error {
 
 		intToByte(q, b, i)
 		_, err := wrZLib.Write(b)
-
 		if err != nil { return err }
 
-		wrZLib.Close()
+		err = wrZLib.Close()
+		if err != nil { return err }
 	}
 
 	return nil
 }
 
 // readCompressedInts reads an array of ints, q, from an io.Reader using
-// column-ordered zlib blocks. b is used as a temporary internal buffer 
-// and must be the same length as q. 
-func ReadCompressedInts(rd io.Reader, b []byte, q []uint64) error {
-	if len(q) != len(b) {
-		panic(fmt.Sprintf("Internal error: input byte buffer has length %d," + 
-			" but quantized int array had length %d.", len(b), len(q)))
-	}
+// column-ordered zlib blocks. b is used as a temporary internal buffer and
+// will be resized as needed. A resized version is returned by the
+// function.
+func ReadCompressedInts(rd io.Reader, b []byte, q []int64) ([]byte, error) {
+	buf := bytes.NewBuffer(b[:0])
 
 	for i := 0; i < 8; i++ {
+		buf.Reset()
+
 		rdZLib, err := zlib.NewReader(rd)
-		if err != nil { return err }
+		if err != nil { return nil, err }
 
-		rdZLib.Read(b)
-		if err != nil { return err }
+		_, err = io.Copy(buf, rdZLib)
+		if err != nil { return nil, err }
 
+		b = buf.Bytes()
 		byteToInt(b, q, i)
 
-		rdZLib.Close()
+		err = rdZLib.Close()
+		if err != nil { return nil, err }
 	}
 
-	return nil
+	return b, nil
 }
 
 // splitArray splits the array x into n smaller arrays and writes their slice
 // headers to splits. The length of each array is given by lengths. n =
 // len(lengths) = len(splits).
-func splitArray(x []uint64, lengths []int, splits [][]uint64) {
+func splitArray(x []int64, lengths []int, splits [][]int64) {
 	sum := 0
 	for _, n := range lengths { sum += n }
 
@@ -450,7 +463,7 @@ func splitArray(x []uint64, lengths []int, splits [][]uint64) {
 // before in is taken to be offset. x and out can be the same array. Since the
 // encoding is done into a uint64 array, both offset, the value before the
 // first value of x, and minDx, the minimum delta between adjacent elements.
-func DeltaEncode(offset uint64, minDx int64, x, out []uint64) {
+func DeltaEncode(offset int64, minDx int64, x, out []int64) {
 	if len(x) != len(out) {
 		panic(fmt.Sprintf("Internal error: len(x) = %d, but len(out) = " + 
 			"%d in deltaEncode", len(x), len(out)))
@@ -458,40 +471,39 @@ func DeltaEncode(offset uint64, minDx int64, x, out []uint64) {
 	if len(x) == 0 { return }
 
 	// This is a bit wonky, but you need to do the loop this way to allow
-	// deltaEncode to be called in place and to avoid calling int64() twice.
+	// deltaEncode to be called in place.
 
-	prev := int64(x[0])
-	out[0] = uint64(prev - int64(offset) - minDx)
-
+	prev := x[0]
+	out[0] = prev - offset - minDx
 	for i := 1; i < len(x); i++ {
-		next := int64(x[i])
-		out[i] = uint64(next - prev - minDx)
+		next := x[i]
+		out[i] = next - prev - minDx
 		prev = next
 	}
 }
 
 // DeltaDecode decodes a integer array encoded with DeltaEncode.
-func DeltaDecode(offset uint64, minDx int64, x, out []uint64) {
+func DeltaDecode(offset int64, minDx int64, x, out []int64) {
 	if len(x) != len(out) {
 		panic(fmt.Sprintf("Internal error: len(x) = %d, but len(out) = " + 
 			"%d in deltaDecode", len(x), len(out)))
 	}
 	if len(x) == 0 { return }
 
-	out[0] = uint64(int64(offset) + int64(x[0]) + minDx)
+	out[0] = offset + x[0] + minDx
 	for i := 1; i < len(out); i++ {
-		out[i] = uint64(int64(out[i-1]) + int64(x[i]) + minDx)
+		out[i] = out[i-1] + x[i] + minDx
 	}
 }
 
 // minDx returns the minimum delta between adjacent elements of x. The first
 // delta is computed between x[0] and offset.
-func minDx(offset uint64, x []uint64) int64 {
+func minDx(offset int64, x []int64) int64 {
 	if len(x) < 2 { return 0 }
 
-	min := int64(x[0]) - int64(offset)
+	min := x[0] - offset
 	for i := 1; i < len(x); i++ {
-		dx := int64(x[i]) - int64(x[i-1])
+		dx := x[i] - x[i-1]
 		if dx < min { min = dx }
 	}
 
@@ -500,7 +512,7 @@ func minDx(offset uint64, x []uint64) int64 {
 
 // MinDxMulti computes minDx on a sequence of arrays with a given set of
 // offsets.
-func MinDxMulti(offsets []uint64, xs [][]uint64) int64 {
+func MinDxMulti(offsets []int64, xs [][]int64) int64 {
 	if len(xs) == 0 { return 0 }
 
 	min := minDx(offsets[0], xs[0])
@@ -517,7 +529,7 @@ func MinDxMulti(offsets []uint64, xs [][]uint64) int64 {
 // are organized so only one actual value needs to be stored for the block.
 // First, one skewer down firstDim, then a face of skewers in the next
 // direciton, and then a block of skewers filling out the rest of the data.
-func BlockToSlices(span [3]int, firstDim int, x, buf []uint64) [][]uint64 {
+func BlockToSlices(span [3]int, firstDim int, x, buf []int64) [][]int64 {
 	if len(buf) != len(x) {
 		panic(fmt.Sprintf("Internal error: len(x) = %d, but len(buf) = %d",
 			len(x), len(buf)))
@@ -574,17 +586,17 @@ func BlockToSlices(span [3]int, firstDim int, x, buf []uint64) [][]uint64 {
 // splitting strategy used by BlockToSlices: first slice has length
 // span[firstDim], next span[firstDim] sliaces have length span[secondDim] - 1,
 // next span[firstDim]*span[secondDim] have length span[thridDim] - 1. 
-func MakeDeltaSlices(span [3]int, firstDim int, buf []uint64) [][]uint64 {
+func MakeDeltaSlices(span [3]int, firstDim int, buf []int64) [][]int64 {
 	lens := sliceLengths(span, firstDim)
-	out := make([][]uint64, len(lens))
+	out := make([][]int64, len(lens))
 	splitArray(buf, lens, out)
 	return out
 }
 
 // SliceOffsets returns the offset associated with each slice within the
 // overall block.
-func SliceOffsets(x [][]uint64) []uint64 {
-	offsets := make([]uint64, len(x))
+func SliceOffsets(x [][]int64) []int64 {
+	offsets := make([]int64, len(x))
 
 	offsets[0] = x[0][0]
 	for i := range x[0] {
@@ -603,7 +615,7 @@ func SliceOffsets(x [][]uint64) []uint64 {
 
 // DeltaDecodeFromSlices runs DeltaDecode on a set of slices. This includes
 // finding the correct offsets.
-func DeltaDecodeFromSlices(firstOffset uint64, minDx int64, x [][]uint64) {
+func DeltaDecodeFromSlices(firstOffset int64, minDx int64, x [][]int64) {
 	DeltaDecode(firstOffset, minDx, x[0], x[0])
 
 	n := len(x[0])
@@ -644,7 +656,7 @@ func sliceLengths(span [3]int, firstDim int) []int {
 }
 
 // SlicesToBlock joins a set of slices, x, into a block in out.
-func SlicesToBlock(span [3]int, firstDim int, x [][]uint64, out []uint64) {
+func SlicesToBlock(span [3]int, firstDim int, x [][]int64, out []int64) {
 	sum := 0
 	for i := range x { sum += len(x[i]) }
 
