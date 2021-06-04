@@ -279,17 +279,23 @@ func (m *LagrangianDelta) Compress(
 	firstDim := ChooseFirstDim(f.Name())
 	slices := BlockToSlices(m.span, firstDim, buf.q, buf.i64)
 	offsets := SliceOffsets(slices)
-	minDx := MinDxMulti(offsets, slices)
 
 	// Write minDx
-	err = binary.Write(wr, m.order, minDx)
+	//minDx := MinDxMulti(offsets, slices)
+	//err = binary.Write(wr, m.order, minDx)
+	//if err != nil { return err }
+
+	// TODO: adaptively compress minDxAll instead of assuming that an int32
+	// is always the right size.
+
+	minDxAll := MinDxAll(offsets, slices)
+	err = binary.Write(wr, m.order, minDxAll)
 	if err != nil { return err }
 
 	// Replace each slice with its deltas. This modifies buf.i64.
 	for i := range slices {
-		DeltaEncode(offsets[i], minDx, slices[i], slices[i])
+		DeltaEncode(offsets[i], int64(minDxAll[i]), slices[i], slices[i])
 	}
-
 	// Write to disk.
 	if err := WriteCompressedInts(buf.i64, buf.b, wr); err != nil {
 		return fmt.Errorf("zlib error while writing block '%s': %s",
@@ -320,7 +326,6 @@ func (m *LagrangianDelta) Decompress(
 		typeFlag TypeFlag
 		nName uint32
 		firstOffset int64
-		minDx int64
 	)
 	
 	err := binary.Read(rd, m.order, &typeFlag)
@@ -335,7 +340,13 @@ func (m *LagrangianDelta) Decompress(
 
 	err = binary.Read(rd, m.order, &firstOffset)
 	if err != nil { return nil, err }
-	err = binary.Read(rd, m.order, &minDx)
+	
+	//err = binary.Read(rd, m.order, &minDx)
+	//if err != nil { return nil, err }
+
+	firstDim := ChooseFirstDim(name)
+	minDxAll := make([]int32, nSlices(m.span, firstDim))
+	err = binary.Read(rd, m.order, minDxAll)
 	if err != nil { return nil, err }
 
 	// Read data. This is done by adding bytes to buf.i64 one-by-one, so
@@ -348,9 +359,9 @@ func (m *LagrangianDelta) Decompress(
 	}
 
 	// Invert the procedures used in Compress.
-	firstDim := ChooseFirstDim(name)
+	
 	slices := MakeDeltaSlices(m.span, firstDim, buf.i64)
-	DeltaDecodeFromSlices(firstOffset, minDx, slices)
+	DeltaDecodeFromSlices(firstOffset, minDxAll, slices)
 	SlicesToBlock(m.span, firstDim, slices, buf.q)
 
 	return Dequantize(name, buf.q, m.delta, typeFlag, buf), nil
@@ -524,6 +535,14 @@ func MinDxMulti(offsets []int64, xs [][]int64) int64 {
 	return min
 }
 
+func MinDxAll(offsets []int64, xs [][]int64) []int32 {
+	out := make([]int32, len(offsets))
+	for i := range out {
+		out[i] = int32(minDx(offsets[i], xs[i]))
+	}
+	return out
+}
+
 // BlockToSlices converts a block of x-major indices into a set of slices
 // which each correspond to a 1-dimensional "skewer" through the block. These
 // are organized so only one actual value needs to be stored for the block.
@@ -615,28 +634,36 @@ func SliceOffsets(x [][]int64) []int64 {
 
 // DeltaDecodeFromSlices runs DeltaDecode on a set of slices. This includes
 // finding the correct offsets.
-func DeltaDecodeFromSlices(firstOffset int64, minDx int64, x [][]int64) {
-	DeltaDecode(firstOffset, minDx, x[0], x[0])
+func DeltaDecodeFromSlices(firstOffset int64, minDxAll []int32, x [][]int64) {
+	DeltaDecode(firstOffset, int64(minDxAll[0]), x[0], x[0])
 
 	n := len(x[0])
 	for i := range x[0] {
+		minDx := int64(minDxAll[i + 1])
 		DeltaDecode(x[0][i], minDx, x[i + 1], x[i + 1])
+		minDx = int64(minDxAll[i + n + 1])
 		DeltaDecode(x[0][i], minDx, x[i + n + 1], x[i + n + 1])
 	}
 
 	for j := range x[1] {
 		for i := range x[0] {
 			slice := x[1 + i + (j+2)*n]
+			minDx := int64(minDxAll[1 + i + (j+2)*n])
 			DeltaDecode(x[1 + i][j], minDx, slice, slice)
 		}
 	}
+}
+
+func nSlices(span [3]int, firstDim int) int {
+	secondDim := (firstDim + 1) % 3
+	return 1 + span[firstDim] + span[secondDim]*span[firstDim]
 }
 
 // SliceLengths gives the lengths of the slices that a given block would
 // be broken into, using firstDim first.
 func sliceLengths(span [3]int, firstDim int) []int {
 	secondDim, thirdDim := (firstDim + 1) % 3, (firstDim + 2) % 3
-	nTot := 1 + span[firstDim] + span[secondDim]*span[firstDim]
+	nTot := nSlices(span, firstDim)
 	lens := make([]int, nTot)
 
 	// First array goes down the first dimension of the block.
