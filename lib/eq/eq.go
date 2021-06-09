@@ -35,6 +35,14 @@ func Generic(x, y interface{}) bool {
 		yy, ok := y.([]uint64)
 		if !ok { return false }
 		return Uint64s(xx, yy)
+	case []int32:
+		yy, ok := y.([]int32)
+		if !ok { return false }
+		return Int32s(xx, yy)
+	case []int64:
+		yy, ok := y.([]int64)
+		if !ok { return false }
+		return Int64s(xx, yy)
 	case [][3]float32:
 		yy, ok := y.([][3]float32)
 		if !ok { return false }
@@ -88,6 +96,24 @@ func Uint32s(x, y []uint32) bool {
 
 // Uint64s returns true if two []uint64 arrays are the same and false otherwise.
 func Uint64s(x, y []uint64) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+// Int32s returns true if two []int32 arrays are the same and false otherwise.
+func Int32s(x, y []int32) bool {
+	if len(x) != len(y) { return false }
+	for i := range x {
+		if x[i] != y[i] { return false }
+	}
+	return true
+}
+
+// Int64s returns true if two []int64 arrays are the same and false otherwise.
+func Int64s(x, y []int64) bool {
 	if len(x) != len(y) { return false }
 	for i := range x {
 		if x[i] != y[i] { return false }
