@@ -52,3 +52,4 @@ Mkfile.old
 dkms.conf
 
 large_test_data/*
+*.gup
