@@ -204,6 +204,7 @@ func NewReader(
 	return rd, err
 }
 
+// Names returns the names of all the variables in the file.
 func (rd *Reader) Names() []string { return rd.names }
 
 // ReadField reads a field from the reader using the given method. (Note: use

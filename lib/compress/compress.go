@@ -176,8 +176,12 @@ func Dequantize(
 
 // Method is an interface representing a compression method.
 type Method interface {
+	// MethodFlag returns the method used to compress the data.
 	MethodFlag() MethodFlag
+	// SetOrder sets the byte order of the compression method.
 	SetOrder(order binary.ByteOrder)
+	// Span returns the span of the data compressed by the method.
+	Span() [3]int
 
 	// WriteInfo writes initialization information to a Writer.
 	WriteInfo(wr io.Writer) error
@@ -215,12 +219,18 @@ func NewLagrangianDelta(span [3]int, delta float64) *LagrangianDelta {
 	return &LagrangianDelta{ binary.LittleEndian, span, nTot, delta }
 }
 
+// (see documentaion for the Method interface)
 func (m *LagrangianDelta) SetOrder(order binary.ByteOrder) { m.order = order }
 
+// (see documentaion for the Method interface)
 func (m *LagrangianDelta) MethodFlag() MethodFlag {
 	return LagrangianDeltaFlag
 }
 
+// (see documentaion for the Method interface)
+func (m *LagrangianDelta) Span() [3]int { return m.span }
+
+// (see documentaion for the Method interface)
 func (m *LagrangianDelta) WriteInfo(wr io.Writer) error {
 	span64 := [3]uint64{uint64(m.span[0]), uint64(m.span[1]), uint64(m.span[2])}
 	
@@ -232,6 +242,7 @@ func (m *LagrangianDelta) WriteInfo(wr io.Writer) error {
 	return err
 }
 
+// (see documentaion for the Method interface)
 func (m *LagrangianDelta) ReadInfo(order binary.ByteOrder, rd io.Reader) error {
 	var flag MethodFlag
 	err := binary.Read(rd, order, &flag)
@@ -255,6 +266,7 @@ func (m *LagrangianDelta) ReadInfo(order binary.ByteOrder, rd io.Reader) error {
 	return nil
 }
 
+// (see documentaion for the Method interface)
 func (m *LagrangianDelta) Compress(
 	f particles.Field, buf *Buffer, wr io.Writer,
 ) error {
@@ -303,11 +315,14 @@ func ChooseFirstDim(name string) int {
 	}
 }
 
+// lagrangianDeltaHeader is the header that LagrangianDelta writes to disk
+// before writing the data block.
 type lagrangianDeltaHeader struct {
 	TypeFlag TypeFlag
 	FirstOffset, Rot int64
 }
 
+// (see documentaion for the Method interface)
 func (m *LagrangianDelta) Decompress(
 	buf *Buffer, rd io.Reader, name string,
 ) (particles.Field, error) {
@@ -584,6 +599,8 @@ func DeltaDecodeFromSlices(firstOffset int64, x [][]int64) {
 	}
 }
 
+// nSlices returns the number of slices used by LagrangianDelta for a given
+// span and starting dimension.
 func nSlices(span [3]int, firstDim int) int {
 	secondDim := (firstDim + 1) % 3
 	return 1 + span[firstDim] + span[secondDim]*span[firstDim]

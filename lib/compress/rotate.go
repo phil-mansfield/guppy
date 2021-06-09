@@ -1,10 +1,14 @@
 package compress
 
+// DeltaStats is a histogram containing delta values which can be used
+// to compute various statistics of the delta distribution.
 type DeltaStats struct {
 	hist, cSum []int
 	nMin, nMax int64
 }
 
+// Load loads an array into the DeltaStas array. It must be called
+// before other methods are called.
 func (stats *DeltaStats) Load(delta []int64) {
 	if len(delta) == 0 {
 		stats.nMin, stats.nMax = 0, 0
@@ -40,6 +44,8 @@ func (stats *DeltaStats) Load(delta []int64) {
 	}
 }
 
+// expandInts expands x to have length n, making the minimum number of
+// heap allocations.
 func expandInts(x []int, n int) []int {
 	if x == nil { return make([]int, n) }
 
@@ -53,6 +59,7 @@ func expandInts(x []int, n int) []int {
 	return x
 }
 
+// Mean returns the mean of the histogram.
 func (stats *DeltaStats) Mean() int64 {
 	sum := int64(0)
 	n := int64(0)
@@ -64,6 +71,7 @@ func (stats *DeltaStats) Mean() int64 {
 	return sum / n
 }
 
+// Mode returns the mode of the histogram.
 func (stats *DeltaStats) Mode() int64 {
 	maxI := 0
 	for i := range stats.hist {
@@ -72,6 +80,8 @@ func (stats *DeltaStats) Mode() int64 {
 	return int64(maxI) + stats.nMin
 }
 
+// Window returns the center of "window" of the given size which contains
+// the maximum number of values.
 func (stats *DeltaStats) Window(size int) int64 {
 	if size >= len(stats.hist) { return int64(len(stats.hist)) / 2 }
 
@@ -88,6 +98,10 @@ func (stats *DeltaStats) Window(size int) int64 {
 	return (2*(stats.nMin + int64(maxFirst)) + int64(size)) / 2
 }
 
+// NeededRotation returns how many values higher the each element in delta
+// woudl need to shift to make sure that all elements are positive and
+// that mid % 256 = 127. If mid is chosen approppriately, this latter
+// condition can allow zlib to compress values more efficeintly.
 func (stats *DeltaStats) NeededRotation(mid int64) int64 {
 	// This would be the rotation if we didn't care about aligning 
 	// mid to the middle of a byte.
