@@ -44,7 +44,7 @@ func NewWriter(
 	fname string, buf *Buffer, b []byte, order binary.ByteOrder,
 ) (*Writer) {
 	header := bytes.NewBuffer([]byte{ })
-	data := bytes.NewBuffer(b) 
+	data := bytes.NewBuffer(b[:0]) 
 	return &Writer{
 		fname, buf, order,
 		[]string{}, []uint32{},
