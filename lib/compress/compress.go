@@ -13,7 +13,7 @@ import (
 )
 
 // TypeFlag is a flag representing an array type.
-type TypeFlag byte
+type TypeFlag int64
 const (
 	Uint32Flag TypeFlag = iota
 	Uint64Flag
@@ -191,7 +191,7 @@ type Method interface {
 	// containing them. This Field will use the Buffer buf to create the space
 	// for the Field, so you need to copy that data elsewhere before calling
 	// Decompress again.
-	Decompress(buf *Buffer, rd io.Reader) (particles.Field, error)
+	Decompress(buf *Buffer, rd io.Reader, name string) (particles.Field, error)
 }
 
 // LagrangianDelta is a compression method which encodes the difference
@@ -259,43 +259,29 @@ func (m *LagrangianDelta) Compress(
 	f particles.Field, buf *Buffer, wr io.Writer,
 ) error {
 	buf.Resize(f.Len())
-	x := f.Data()
-	
-	// Write basic info about the field: type and name.
-	err := binary.Write(wr, m.order, GetTypeFlag(x))
-	if err != nil { return err }
-	err = binary.Write(wr, m.order, uint32(len(f.Name())))
-	if err != nil { return err }
-	err = binary.Write(wr, m.order, []byte(f.Name()))
-	if err != nil { return err }
 
-	// Convert to integers.
+	typeFlag := GetTypeFlag(f.Data())
 	Quantize(f, m.delta, buf.q)
-
-	// Write the first value in the block as a special value.
-	err = binary.Write(wr, m.order, buf.q[0])
-	if err != nil { return err }
 
 	firstDim := ChooseFirstDim(f.Name())
 	slices := BlockToSlices(m.span, firstDim, buf.q, buf.i64)
 	offsets := SliceOffsets(slices)
 
-	// Write minDx
-	//minDx := MinDxMulti(offsets, slices)
-	//err = binary.Write(wr, m.order, minDx)
-	//if err != nil { return err }
+	// Replace each slice with its deltas. Remember, this modifies buf.i64.
+	for i := range slices {
+		DeltaEncode(offsets[i], slices[i], slices[i])
+	}
 
-	// TODO: adaptively compress minDxAll instead of assuming that an int32
-	// is always the right size.
+	stats := &DeltaStats{ }
+	stats.Load(buf.i64)
+	mid := stats.Window(256)
+	rot := stats.NeededRotation(mid)
+	RotateEncode(buf.i64, rot)
 
-	minDxAll := MinDxAll(offsets, slices)
-	err = binary.Write(wr, m.order, minDxAll)
+	hd := &lagrangianDeltaHeader{ typeFlag, buf.q[0], rot }
+	err := binary.Write(wr, m.order, hd)
 	if err != nil { return err }
 
-	// Replace each slice with its deltas. This modifies buf.i64.
-	for i := range slices {
-		DeltaEncode(offsets[i], int64(minDxAll[i]), slices[i], slices[i])
-	}
 	// Write to disk.
 	if err := WriteCompressedInts(buf.i64, buf.b, wr); err != nil {
 		return fmt.Errorf("zlib error while writing block '%s': %s",
@@ -317,37 +303,21 @@ func ChooseFirstDim(name string) int {
 	}
 }
 
+type lagrangianDeltaHeader struct {
+	TypeFlag TypeFlag
+	FirstOffset, Rot int64
+}
+
 func (m *LagrangianDelta) Decompress(
-	buf *Buffer, rd io.Reader,
+	buf *Buffer, rd io.Reader, name string,
 ) (particles.Field, error) {
 	buf.Resize(m.nTot)
-	
-	var (
-		typeFlag TypeFlag
-		nName uint32
-		firstOffset int64
-	)
-	
-	err := binary.Read(rd, m.order, &typeFlag)
-	if err != nil { return nil, err }
-	err = binary.Read(rd, m.order, &nName)
-	if err != nil { return nil, err }
 
-	bName := make([]byte, nName)
-	err = binary.Read(rd, m.order, bName)
-	if err != nil { return nil, err }
-	name := string(bName)
-
-	err = binary.Read(rd, m.order, &firstOffset)
-	if err != nil { return nil, err }
-	
-	//err = binary.Read(rd, m.order, &minDx)
-	//if err != nil { return nil, err }
+	hd := &lagrangianDeltaHeader{ }
+	err := binary.Read(rd, m.order, hd)
+	if err != nil { return  nil, err}
 
 	firstDim := ChooseFirstDim(name)
-	minDxAll := make([]int32, nSlices(m.span, firstDim))
-	err = binary.Read(rd, m.order, minDxAll)
-	if err != nil { return nil, err }
 
 	// Read data. This is done by adding bytes to buf.i64 one-by-one, so
 	// we need to clear the array first.
@@ -359,12 +329,12 @@ func (m *LagrangianDelta) Decompress(
 	}
 
 	// Invert the procedures used in Compress.
-	
 	slices := MakeDeltaSlices(m.span, firstDim, buf.i64)
-	DeltaDecodeFromSlices(firstOffset, minDxAll, slices)
+	RotateDecode(buf.i64, hd.Rot)
+	DeltaDecodeFromSlices(hd.FirstOffset, slices)
 	SlicesToBlock(m.span, firstDim, slices, buf.q)
 
-	return Dequantize(name, buf.q, m.delta, typeFlag, buf), nil
+	return Dequantize(name, buf.q, m.delta, hd.TypeFlag, buf), nil
 }
 
 // intToByte transfers a one-byte "column" from u64 to b. The bytes are indexed
@@ -403,7 +373,7 @@ func WriteCompressedInts(q []int64, b []byte, wr io.Writer) error {
 		panic(fmt.Sprintf("Internal error: output byte buffer has length %d," + 
 			" but quantized int array had length %d.", len(b), len(q)))
 	}
-	_ = bytes.NewBuffer([]byte{})
+
 	for i := 0; i < 8; i++ {
 		// We need to create a new Writer each loop so a different codex is
 		// used for the different columns, letting the high-significance bits
@@ -471,10 +441,9 @@ func splitArray(x []int64, lengths []int, splits [][]int64) {
 }
 
 // DeltaEncode delta encodes the array x into the array out. The element
-// before in is taken to be offset. x and out can be the same array. Since the
-// encoding is done into a uint64 array, both offset, the value before the
-// first value of x, and minDx, the minimum delta between adjacent elements.
-func DeltaEncode(offset int64, minDx int64, x, out []int64) {
+// before x[0] is taken to be offset. x and out can be the same array. Since the
+// encoding is done into a uint64 array,
+func DeltaEncode(offset int64, x, out []int64) {
 	if len(x) != len(out) {
 		panic(fmt.Sprintf("Internal error: len(x) = %d, but len(out) = " + 
 			"%d in deltaEncode", len(x), len(out)))
@@ -485,62 +454,26 @@ func DeltaEncode(offset int64, minDx int64, x, out []int64) {
 	// deltaEncode to be called in place.
 
 	prev := x[0]
-	out[0] = prev - offset - minDx
+	out[0] = prev - offset
 	for i := 1; i < len(x); i++ {
 		next := x[i]
-		out[i] = next - prev - minDx
+		out[i] = next - prev
 		prev = next
 	}
 }
 
 // DeltaDecode decodes a integer array encoded with DeltaEncode.
-func DeltaDecode(offset int64, minDx int64, x, out []int64) {
+func DeltaDecode(offset int64, x, out []int64) {
 	if len(x) != len(out) {
 		panic(fmt.Sprintf("Internal error: len(x) = %d, but len(out) = " + 
 			"%d in deltaDecode", len(x), len(out)))
 	}
 	if len(x) == 0 { return }
 
-	out[0] = offset + x[0] + minDx
+	out[0] = offset + x[0]
 	for i := 1; i < len(out); i++ {
-		out[i] = out[i-1] + x[i] + minDx
+		out[i] = out[i-1] + x[i]
 	}
-}
-
-// minDx returns the minimum delta between adjacent elements of x. The first
-// delta is computed between x[0] and offset.
-func minDx(offset int64, x []int64) int64 {
-	if len(x) < 2 { return 0 }
-
-	min := x[0] - offset
-	for i := 1; i < len(x); i++ {
-		dx := x[i] - x[i-1]
-		if dx < min { min = dx }
-	}
-
-	return min
-}
-
-// MinDxMulti computes minDx on a sequence of arrays with a given set of
-// offsets.
-func MinDxMulti(offsets []int64, xs [][]int64) int64 {
-	if len(xs) == 0 { return 0 }
-
-	min := minDx(offsets[0], xs[0])
-	for i := 1; i < len(xs); i++ {
-		dx := minDx(offsets[i], xs[i])
-		if dx < min { min = dx }
-	}
-
-	return min
-}
-
-func MinDxAll(offsets []int64, xs [][]int64) []int32 {
-	out := make([]int32, len(offsets))
-	for i := range out {
-		out[i] = int32(minDx(offsets[i], xs[i]))
-	}
-	return out
 }
 
 // BlockToSlices converts a block of x-major indices into a set of slices
@@ -570,7 +503,7 @@ func BlockToSlices(span [3]int, firstDim int, x, buf []int64) [][]int64 {
 	// Copy over the first skewer.
 	start := 0*dx[d1] + 0*dx[d2] + 0*dx[d3]
 	for j := 0; j < span[d1]; j++ {
-		out[0][j] = x[start + dx[d1]*j] // Along d1
+		out[0][j] = x[start + dx[d1]*j] 
 	}
 
 	// Copy over the first face.
@@ -634,22 +567,19 @@ func SliceOffsets(x [][]int64) []int64 {
 
 // DeltaDecodeFromSlices runs DeltaDecode on a set of slices. This includes
 // finding the correct offsets.
-func DeltaDecodeFromSlices(firstOffset int64, minDxAll []int32, x [][]int64) {
-	DeltaDecode(firstOffset, int64(minDxAll[0]), x[0], x[0])
+func DeltaDecodeFromSlices(firstOffset int64, x [][]int64) {
+	DeltaDecode(firstOffset, x[0], x[0])
 
 	n := len(x[0])
 	for i := range x[0] {
-		minDx := int64(minDxAll[i + 1])
-		DeltaDecode(x[0][i], minDx, x[i + 1], x[i + 1])
-		minDx = int64(minDxAll[i + n + 1])
-		DeltaDecode(x[0][i], minDx, x[i + n + 1], x[i + n + 1])
+		DeltaDecode(x[0][i], x[i + 1], x[i + 1])
+		DeltaDecode(x[0][i], x[i + n + 1], x[i + n + 1])
 	}
 
 	for j := range x[1] {
 		for i := range x[0] {
 			slice := x[1 + i + (j+2)*n]
-			minDx := int64(minDxAll[1 + i + (j+2)*n])
-			DeltaDecode(x[1 + i][j], minDx, slice, slice)
+			DeltaDecode(x[1 + i][j], slice, slice)
 		}
 	}
 }

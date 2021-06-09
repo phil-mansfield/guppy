@@ -120,7 +120,7 @@ func TestFileLarge(t *testing.T) {
 	if err != nil { t.Fatalf(err.Error()) }
 	x, v := quickRead(f, t)
 
-	xDelta := 2.0e-3
+	xDelta := 2.4e-3
 	vDelta := 1.0
 
 	buf := NewBuffer(0)
@@ -144,6 +144,7 @@ func TestFileLarge(t *testing.T) {
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
 			xComp.Name(), err.Error())
 		}
+
 		err = wr.AddField(vComp, vMethod)
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
 			vComp.Name(), err.Error())
@@ -164,6 +165,7 @@ func TestFileLarge(t *testing.T) {
  	}
 
  	for i := range names {
+
  		field, err := rd.ReadField(names[i])
  		if err != nil { t.Fatalf(err.Error()) }
 
@@ -181,24 +183,6 @@ func TestFileLarge(t *testing.T) {
  				field.Name(), dataExp[:3], data[:3])
  		}
  	}
-
- 	fmt.Println("Starting size:")
- 	fmt.Printf("x: %.1f MB\n", float64(len(x)*12) / 1e6)
- 	fmt.Printf("v: %.1f MB\n", float64(len(v)*12) / 1e6)
-
- 	fmt.Println()
- 	fmt.Println("Ending size:")
- 	for i := 0; i < len(wr.dataEdges) - 1; i++ {
- 		fmt.Printf("block %d: %.1f MB\n", i,
- 			float64(wr.dataEdges[i+1]  - wr.dataEdges[i])/1e6)
- 	}
-
- 	fmt.Println()
- 	fmt.Printf("Compression ratio:")
- 	num := wr.dataEdges[len(wr.dataEdges) - 1]
- 	den := len(x)*(24 + 8)
-
- 	fmt.Printf("Compression ratio: %.3f\n", float64(num)/float64(den))
  }
 
 func verboseFloat32sEps(x, y []float32, eps float32) bool {

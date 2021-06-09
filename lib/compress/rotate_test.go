@@ -1,70 +1,34 @@
 package compress
 
 import (
-	"math"
 	"testing"
 	"github.com/phil-mansfield/guppy/lib/eq"
 )
-
-func TestMaxBytes(t *testing.T) {
-	tests := []struct{
-		n int64
-		bytes uint8
-	} {
-		{0, 1},
-		{math.MaxInt8, 1},
-		{math.MaxUint8, 1},
-		{math.MaxUint8+1, 2},
-		{math.MaxInt16, 2},
-		{math.MaxUint16, 2},
-		{math.MaxUint16+1, 4},
-		{math.MaxInt32, 4},
-		{math.MaxUint32, 4},
-		{math.MaxUint32+1, 8},
-		{math.MaxInt64, 8},
-	}
-
-	for i := range tests {
-
-		delta := []int64{1, 0, 1, tests[i].n}
-
-		if MaxBytes(delta) != tests[i].bytes {
-			t.Errorf("%d.1) Expected MaxBytes(%d) = %d, got %d.", i, 
-				tests[i].n, tests[i].bytes, MaxBytes(delta))
-		}
-
-		delta = []int64{tests[i].n, 1, 0, 1}
-
-		if MaxBytes(delta) != tests[i].bytes {
-			t.Errorf("%d.2) Expected MaxBytes(%d) = %d, got %d.", i, 
-				tests[i].n, tests[i].bytes, MaxBytes(delta))
-		}
-	}
-}
 
 func TestLoad(t *testing.T) {
 	tests := []struct{
 		delta []int64
 		hist []int
+		nMin int
 	} {
-		{[]int64{}, []int{}},
-		{[]int64{0}, []int{1}},
-		{[]int64{0, 0}, []int{2}},
-		{[]int64{0}, []int{1}},
-		{[]int64{0, 1, 0}, []int{2, 1}},
-		{[]int64{0, 1, 0}, []int{2, 1}},
-		{[]int64{0, 2, 4, 2, 2}, []int{1, 0, 3, 0, 1}},
-		{[]int64{5}, []int{0, 0, 0, 0, 0, 1}},
+		{[]int64{}, []int{}, 0},
+		{[]int64{0}, []int{1}, 0},
+		{[]int64{0, 0}, []int{2}, 0},
+		{[]int64{0}, []int{1}, 0},
+		{[]int64{0, 1, 0}, []int{2, 1}, 0},
+		{[]int64{0, 1, 0}, []int{2, 1}, 0},
+		{[]int64{0, 2, 4, 2, 2}, []int{1, 0, 3, 0, 1}, 0},
+		{[]int64{5}, []int{1}, 5},
+		{[]int64{3, 4, 5, 5}, []int{1, 1, 2}, 3},
+		{[]int64{-3, 0, -3}, []int{2, 0, 0, 1}, -3},
 	}
 
 	stats := &DeltaStats{ }
 	for i := range tests {
 		stats.Load(tests[i].delta)
-		hist := stats.hist[:stats.n]
-
-		if !eq.Ints(hist, tests[i].hist) {
+		if !eq.Ints(stats.hist, tests[i].hist) {
 			t.Errorf("%d) Expected delta = %d to give the histogram %d. " + 
-				"Got %d instead.", i, tests[i].delta, tests[i].hist, hist)
+				"Got %d instead.", i, tests[i].delta, tests[i].hist, stats.hist)
 		}
 	}
 }
@@ -154,70 +118,25 @@ func TestWindow(t *testing.T) {
 	}
 }
 
-func TestRotateEncode(t *testing.T) {
-	tests := []struct{
-		delta []int64
-		rot int64
-		rotDelta []int64
-	} {
-		{[]int64{0xfe, 0xff, 0, 1, 2, 3}, 128, []int64{0xfe, 0xff, 0, 1, 2, 3}},
-		{[]int64{0xfe, 0xff, 0, 1, 2, 3}, 121, []int64{5, 6, 7, 8, 9, 10}},
-		{[]int64{0xfe, 0xff, 0, 1, 2, 3}, 130,
-			[]int64{0xfc, 0xfd, 0xfe, 0xff, 0, 1}},
-		{[]int64{0xfffe, 0xffff, 0, 1, 2}, 128,
-			[]int64{0xfffe, 0xffff, 0, 1, 2}},
-		{[]int64{0xfffe, 0xffff, 0, 1, 2}, 127,
-			[]int64{0xffff, 0, 1, 2, 3}},
-		{[]int64{0xfffe, 0xffff, 0, 1, 2}, 129,
-			[]int64{0xfffd, 0xfffe, 0xffff, 0, 1}},
-	}
+func TestNeededRotation(t *testing.T) {
+	nMinLow, nMinHigh := -256, 256
+	midHigh := int64(512)
 
-	for i := range tests {
-		rotDelta := make([]int64, len(tests[i].delta))
-		copy(rotDelta, tests[i].delta)
+	stats := &DeltaStats{ }
 
-		maxBytes := MaxBytes(rotDelta)
-		RotateEncode(maxBytes, rotDelta, tests[i].rot)
+	for nMin := nMinLow; nMin <= nMinHigh; nMin++ {
+		for mid := int64(nMin); mid <= midHigh; mid++ {
+			stats.nMin = int64(nMin)
+			rot := stats.NeededRotation(mid)
 
-		if !eq.Int64s(rotDelta, tests[i].rotDelta) {
-			t.Errorf("%d) Expected delta = %04x, rot = %d -> " + 
-				"rotDelta = %04x, got %d", i, tests[i].delta, tests[i].rot,
-				tests[i].rotDelta, rotDelta)
-		}
-	}
-}
-
-func TestRotateDecode(t *testing.T) {
-	tests := []struct{
-		delta []int64
-		rot int64
-		rotDelta []int64
-		maxBytes uint8
-	} {
-		{[]int64{0xfe, 0xff, 0, 1, 2, 3}, 128,
-			[]int64{0xfe, 0xff, 0, 1, 2, 3}, 1},
-		{[]int64{0xfe, 0xff, 0, 1, 2, 3}, 121,
-			[]int64{5, 6, 7, 8, 9, 10}, 1},
-		{[]int64{0xfe, 0xff, 0, 1, 2, 3}, 130,
-			[]int64{0xfc, 0xfd, 0xfe, 0xff, 0, 1}, 1},
-		{[]int64{0xfffe, 0xffff, 0, 1, 2}, 128,
-			[]int64{0xfffe, 0xffff, 0, 1, 2}, 2},
-		{[]int64{0xfffe, 0xffff, 0, 1, 2}, 127,
-			[]int64{0xffff, 0, 1, 2, 3}, 2},
-		{[]int64{0xfffe, 0xffff, 0, 1, 2}, 129,
-			[]int64{0xfffd, 0xfffe, 0xffff, 0, 1}, 2},
-	}
-
-	for i := range tests {
-		delta := make([]int64, len(tests[i].delta))
-		copy(delta, tests[i].rotDelta)
-
-		RotateDecode(tests[i].maxBytes, delta, tests[i].rot)
-
-		if !eq.Int64s(delta, tests[i].delta) {
-			t.Errorf("%d) Expected rotDelta = %04x, rot = %d -> " + 
-				"rotDelta = %04x, got %d", i, tests[i].rotDelta, tests[i].rot,
-				tests[i].delta, delta)
+			if (rot + mid) % 256 != 127 {
+				t.Fatalf("err 1: mid = %d, nMin = %d gave rot = %d",
+					mid, nMin, rot)
+			}
+			if rot + int64(nMin) < 0 {
+				t.Fatalf("err 2: mid = %d, nMin = %d gave rot = %d",
+					mid, nMin, rot)	
+			}
 		}
 	}
 }

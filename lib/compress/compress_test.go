@@ -5,10 +5,6 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"testing"
-	//"fmt"
-	//"os"
-	//"io"
-	//"compress/zlib"
 
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
@@ -176,11 +172,11 @@ func TestLagrangianDelta(t *testing.T) {
 		{ [3]int{2, 2, 2}, "meow", 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0} },
 		{ [3]int{2, 2, 2}, "meow", 1e-4, []float32{0, 1, 2, 4, 4, 5, 4, 0} },
 		{ [3]int{2, 2, 2}, "meow", 1e-4, []float64{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{32, 16, 8}, "meow", 1e-4, lastTestData},
-		{ [3]int{32, 16, 8}, "meow[0]", 1e-4, lastTestData},
-		{ [3]int{32, 16, 8}, "meow[1]", 1e-4, lastTestData},
-		{ [3]int{32, 16, 8}, "meow[2]", 1e-4, lastTestData},
-	}[:7]
+		{ [3]int{32, 16, 8}, "meow", 1e-4, lastTestData },
+		{ [3]int{32, 16, 8}, "meow[0]", 1e-4, lastTestData },
+		{ [3]int{32, 16, 8}, "meow[1]", 1e-4, lastTestData },
+		{ [3]int{32, 16, 8}, "meow[2]", 1e-4, lastTestData },
+	}
 
 	buf := NewBuffer(0)
 	for i := range tests {
@@ -211,7 +207,7 @@ func TestLagrangianDelta(t *testing.T) {
 			continue
 		}
 
-		fOut, err := mOut.Decompress(buf, rd)
+		fOut, err := mOut.Decompress(buf, rd, tests[i].name)
 		if err != nil {
 			t.Errorf("%d) Got error '%s' on Demcompress", i, err.Error())
 			continue
@@ -232,7 +228,7 @@ func TestLagrangianDelta(t *testing.T) {
 
 		if fOut.Name() != tests[i].name {
 			t.Errorf("%d) Expected field name '%s', got '%s'.",
-				i, "meow", fOut.Name())
+				i, tests[i].name, fOut.Name())
 			continue
 		}
 		
@@ -312,28 +308,24 @@ func TestSplitArray(t *testing.T) {
 func TestDeltaEncode(t *testing.T) {
 	tests := []struct{
 		offset int64
-		minDx int64
 		x, out []int64
 	} {
-		{0, 0, []int64{}, []int64{}},
-		{0, 0, []int64{10}, []int64{10}},
-		{10, 0, []int64{10}, []int64{0}},
-		{0, 5, []int64{10}, []int64{5}},
-		{0, 0, []int64{1, 5, 5, 10, 16, 20}, []int64{1, 4, 0, 5, 6, 4}},
-		{0, -2, []int64{1, 5, 5, 10, 16, 20}, []int64{3, 6, 2, 7, 8, 6}},
-		{10, -10, []int64{5, 12, 10, 0}, []int64{5, 17, 8, 0}},
-		{-10, 0, []int64{-9, -8, 0, 1, -8, -9}, []int64{1, 1, 8, 1, -9, -1}},
+		{0, []int64{}, []int64{}},
+		{0, []int64{10}, []int64{10}},
+		{10, []int64{10}, []int64{0}},
+		{0, []int64{1, 5, 5, 10, 16, 20}, []int64{1, 4, 0, 5, 6, 4}},
+		{-10, []int64{-9, -8, 0, 1, -8, -9}, []int64{1, 1, 8, 1, -9, -1}},
 	}
 
 	for i := range tests {
 		x := make([]int64, len(tests[i].x))
 		for j := range x { x[j] = tests[i].x[j] }
 
-		DeltaEncode(tests[i].offset, tests[i].minDx, x, x)
+		DeltaEncode(tests[i].offset, x, x)
 
 		if !eq.Int64s(tests[i].out, x) {
-			t.Errorf("%d) Expected deltaEncode(offset=%d, minDx=%d, x=%d) to " + 
-				"be %d, but got %d.", i, tests[i].offset, tests[i].minDx,
+			t.Errorf("%d) Expected deltaEncode(offset=%d, x=%d) to " + 
+				"be %d, but got %d.", i, tests[i].offset,
 				tests[i].x, tests[i].out, x)
 		}
 	}
@@ -342,28 +334,24 @@ func TestDeltaEncode(t *testing.T) {
 func TestDeltaDecode(t *testing.T) {
 	tests := []struct{
 		offset int64
-		minDx int64
 		x, out []int64
 	} {
-		{0, 0, []int64{}, []int64{}},
-		{0, 0, []int64{10}, []int64{10}},
-		{10, 0, []int64{0}, []int64{10}},
-		{0, 5, []int64{5}, []int64{10}},
-		{0, 0, []int64{1, 4, 0, 5, 6, 4}, []int64{1, 5, 5, 10, 16, 20}},
-		{0, -2, []int64{3, 6, 2, 7, 8, 6}, []int64{1, 5, 5, 10, 16, 20}},
-		{10, -10, []int64{5, 17, 8, 0}, []int64{5, 12, 10, 0}},
-		{-10, 0, []int64{1, 1, 8, 1, -9, -1}, []int64{-9, -8, 0, 1, -8, -9}},
+		{0, []int64{}, []int64{}},
+		{0, []int64{10}, []int64{10}},
+		{10, []int64{0}, []int64{10}},
+		{0, []int64{1, 4, 0, 5, 6, 4}, []int64{1, 5, 5, 10, 16, 20}},
+		{-10, []int64{1, 1, 8, 1, -9, -1}, []int64{-9, -8, 0, 1, -8, -9}},
 	}
 
 	for i := range tests {
 		x := make([]int64, len(tests[i].x))
 		for j := range x { x[j] = tests[i].x[j] }
 
-		DeltaDecode(tests[i].offset, tests[i].minDx, x, x)
+		DeltaDecode(tests[i].offset,  x, x)
 
 		if !eq.Int64s(tests[i].out, x) {
-			t.Errorf("%d) Expected deltaDecode(offset=%d, minDx=%d, x=%d) to " + 
-				"be %d, but got %d.", i, tests[i].offset, tests[i].minDx,
+			t.Errorf("%d) Expected deltaDecode(offset=%d, x=%d) to " + 
+				"be %d, but got %d.", i, tests[i].offset,
 				tests[i].x, tests[i].out, x)
 		}
 	}

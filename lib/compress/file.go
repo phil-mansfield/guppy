@@ -244,7 +244,7 @@ func (rd *Reader) ReadField(name string) (particles.Field, error) {
 	if err != nil { return nil, err }
 
 	midBuf := bytes.NewBuffer(rd.midBuf)
-	return method.Decompress(rd.buf, midBuf)
+	return method.Decompress(rd.buf, midBuf, name)
 }
 
 // Close closes the files associated with the Reader.
