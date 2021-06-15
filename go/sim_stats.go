@@ -16,9 +16,10 @@ const (
 	NTot = 1<<30
 	Mp = 1.70e7 // Msun/h
 	SimName = "Erebos_CBol_L63"
-	FileFormat = "path/to/files/sim%s/var%s/snap%03d/"
+	XFileBase = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/dx_20/snapdir_100/sheet%d%d%d.gup"
+	VFileBase = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/dv_20/snapdir_100/sheet%d%d%d.gup"
 	BoundsName = "Erebos_CBol_L63.bounds.txt"
-	ProfileDir = "profiles"
+	ProfileDir = "profiles/delta_20_20"
 	Snap = 100
 )
 
@@ -429,13 +430,11 @@ func ApocenterProfile(x, v [][3]float32, i int) {
 }
 
 func getFileNames() (xNames, vNames []string) {
-	base := "../lib/compress/test_files/Erebos_CBol_L125_%d%d%d_snap100.%s.gup"
-
 	for iz := 0; iz <= 7; iz++ {
 		for iy := 0; iy <= 7; iy++ {
 			for ix := 0; ix <= 7; ix++ {
-				xNames = append(xNames, fmt.Sprintf(base, ix, iy, iz, "x"))
-				vNames = append(vNames, fmt.Sprintf(base, ix, iy, iz, "v"))
+				xNames = append(xNames, fmt.Sprintf(XFileBase, ix, iy, iz))
+				vNames = append(vNames, fmt.Sprintf(VFileBase, ix, iy, iz))
 			}
 		}
 	}
@@ -459,8 +458,6 @@ func AnalyzeHalo(iHalo int) {
 	midBuf := []byte{ }
 
 	for _, i := range idx {
-		if i != 0 && i != 85 && i != 337 { continue }
-
 		// Read in x
 		rdX, err := compress.NewReader(xFileNames[i], buf, midBuf)
 		if err != nil { panic(err.Error()) }
