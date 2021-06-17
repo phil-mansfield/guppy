@@ -9,18 +9,22 @@ import (
 
 	"github.com/phil-mansfield/guppy/lib/catio"
 	"github.com/phil-mansfield/guppy/lib/compress"
+	"github.com/phil-mansfield/gravitree"
 )
 
 const (
 	L = 62.5
 	NTot = 1<<30
 	Mp = 1.70e7 // Msun/h
+	Eps = 1e-3 // Mpc/h
 	SimName = "Erebos_CBol_L63"
 	XFileBase = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/dx_20/snapdir_100/sheet%d%d%d.gup"
 	VFileBase = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/dv_20/snapdir_100/sheet%d%d%d.gup"
 	BoundsName = "Erebos_CBol_L63.bounds.txt"
 	ProfileDir = "profiles/delta_20_20"
 	Snap = 100
+
+	G = 4.30091e-9 // Mpc / Msun (kms/)^2
 )
 
 var (
@@ -48,12 +52,13 @@ var (
 		{ 3.5740e+01, -1.5160e+01,  1.7210e+02},
 		{ 4.5780e+01,  2.2764e+02, -6.9480e+01},
 	}
-	Rmax = float32(math.Pow(10, 0.5))
-	RHalo = []float32{ Rmax, Rmax, Rmax, Rmax, Rmax,
-		Rmax, Rmax, Rmax, Rmax, Rmax }
 	MassHalo = []float32{ 5.742e+13, 5.916e+13, 6.081e+13, 6.248e+13, 9.282e+13,
 		9.547e+13, 1.041e+14, 1.387e+14, 2.181e+14, 3.166e+14 }
 )
+
+func MvirToRvirZ0(mvir float32) float64 {
+	return 0.4459216 * math.Pow(float64(mvir)/1e13, 1.0/3)
+}
 
 type Bounds [2][3]float32
 
@@ -175,8 +180,7 @@ func CalculateProfiles(x, v [][3]float32, i int) {
 	CricularVelocityProfile(x, v, i)
 	ShapeProfile(x, v, i)
 	AngularVelocityProfile(x, v, i)
-	//PericenterProfile(x, v, i)
-	//ApocenterProfile(x, v, i)
+	BoundFractionProfile(x, v, i)
 }
 
 
@@ -210,6 +214,30 @@ func radialHist(
 	}
 
 	return xHist, vHist
+}
+
+func radialIdxHist(
+	nBins int, rMin, rMax float64, x [][3]float32, i int,
+) (idx [][]int) {
+	xh := VecHalo[i]
+
+	logRMin, logRMax := math.Log10(rMin), math.Log10(rMax)
+	dLogR := (logRMax - logRMin) / float64(nBins)
+
+	idx = make([][]int, nBins + 1)
+
+	for j := range x {
+		r2 := PeriodicR2(x[j], xh, L)
+		logR := math.Log10(float64(r2)) / 2
+
+		ri := int(math.Floor((logR - logRMin) / dLogR))
+		if ri >= nBins { continue }
+		if ri < 0 { ri = -1 }
+
+		idx[ri+1] = append(idx[ri+1], j)
+	}
+
+	return idx
 }
 
 func radialBinEdges(nBins int, rMin, rMax float64) []float64 {
@@ -259,12 +287,13 @@ func shellVolume(r1, r2 float64) float64 {
 }
 
 func DensityProfile(x, v [][3]float32, i int) {
-	rMin, rMax := math.Pow(10, -3.5), math.Pow(10, 0.5)
+	rVir := MvirToRvirZ0(MassHalo[i])
+	rMin := math.Pow(10, -3.5)
 	nBins := 40
 
-	xHist, _ := radialHist(nBins, rMin, rMax, x, v, i)
-	rEdges := radialBinEdges(nBins, rMin, rMax)
-	rMids := radialBinCenters(nBins, rMin, rMax)
+	xHist, _ := radialHist(nBins, rMin, rVir, x, v, i)
+	rEdges := radialBinEdges(nBins, rMin, rVir)
+	rMids := radialBinCenters(nBins, rMin, rVir)
 
 	avgNumDensity := NTot / float64(L*L*L)
 
@@ -284,11 +313,12 @@ func vCirc(m, r float64) float64 {
 }
 
 func CricularVelocityProfile(x, v [][3]float32, i int) {
-	rMin, rMax := math.Pow(10, -3.5), math.Pow(10, 0.5)
+	rVir := MvirToRvirZ0(MassHalo[i])
+	rMin := math.Pow(10, -3.5)
 	nBins := 200
 
-	xHist, _ := radialHist(nBins, rMin, rMax, x, v, i)
-	rEdges := radialBinEdges(nBins, rMin, rMax)
+	xHist, _ := radialHist(nBins, rMin, rVir, x, v, i)
+	rEdges := radialBinEdges(nBins, rMin, rVir)
 
 	out := make([]float64, nBins)
 
@@ -349,11 +379,12 @@ func sort3(x, y, z float64) (l1, l2, l3 float64) {
 }
 
 func ShapeProfile(x, v [][3]float32, i int) {
-	rMin, rMax := math.Pow(10, -3.5), math.Pow(10, 0.5)
+	rVir := MvirToRvirZ0(MassHalo[i])
+	rMin := math.Pow(10, -3.5)
 	nBins := 40
 
-	xHist, _ := radialHist(nBins, rMin, rMax, x, v, i)
-	rMids := radialBinCenters(nBins, rMin, rMax)
+	xHist, _ := radialHist(nBins, rMin, rVir, x, v, i)
+	rMids := radialBinCenters(nBins, rMin, rVir)
 
 	ca, ba := make([]float64, nBins), make([]float64, nBins)
 	for j := range ca {
@@ -394,11 +425,12 @@ func specificJ(x, v [][3]float64, xh, vh [3]float32) [3]float64 {
 }
 
 func AngularVelocityProfile(x, v [][3]float32, i int) {
-	rMin, rMax := math.Pow(10, -3.5), math.Pow(10, 0.5)
+	rVir := MvirToRvirZ0(MassHalo[i])
+	rMin := math.Pow(10, -3.5)
 	nBins := 40
 
-	xHist, vHist := radialHist(nBins, rMin, rMax, x, v, i)
-	rMids := radialBinCenters(nBins, rMin, rMax)
+	xHist, vHist := radialHist(nBins, rMin, rVir, x, v, i)
+	rMids := radialBinCenters(nBins, rMin, rVir)
 	
 	out := make([]float64, nBins)
 
@@ -421,12 +453,69 @@ func AngularVelocityProfile(x, v [][3]float32, i int) {
 	PrintToFile(i, "l_bullock", comment, rMids, out)
 }
 
-func PericenterProfile(x, v [][3]float32, i int) {
-	panic("NYI")
+// Specific kinetic energy. In units of (km/s)^2
+func KineticEnergy(vh [3]float32, v [][3]float32) []float64 {
+	ke := make([]float64, len(v))
+
+	for i := range v {
+		for dim := 0; dim < 3; dim++ {
+			dv := float64(vh[dim] - v[i][dim])
+			ke[i] += dv*dv
+		}
+		ke[i] /= 2
+	}
+
+	return ke
 }
 
-func ApocenterProfile(x, v [][3]float32, i int) {
-	panic("NYI")
+func PotentialEnergy(x [][3]float32) []float64 {
+	dx := make([][3]float64, len(x))
+	x0 := [3]float64{ float64(x[0][0]), float64(x[0][1]), float64(x[0][2]) }
+	for i, xx := range x {
+		xi := [3]float64{ float64(xx[0]), float64(xx[1]), float64(xx[2]) }
+		dx[i] = PeriodicDisplacement(xi, x0, L)
+	}
+
+	tree := gravitree.NewTree(dx)
+
+	pe := make([]float64, len(x))
+	tree.Potential(Eps, pe)
+	for i := range pe { pe[i] *= G*Mp }
+
+	return pe
+}
+
+func BoundFractionProfile(x, v [][3]float32, i int) {
+	rVir := MvirToRvirZ0(MassHalo[i])
+	rMin := math.Pow(10, -3.5)
+	nBins := 40
+
+	idx := radialIdxHist(nBins, rMin, rVir, x, i)
+	rMids := radialBinCenters(nBins, rMin, rVir)
+	
+	ke := KineticEnergy(VelHalo[i], v)
+	pe := PotentialEnergy(x)
+
+	out := make([]float64, nBins)
+	for j := range out {
+		if len(idx[j+1]) == 0 {
+			out[j] = -1 
+			continue
+		}
+
+		nBound := 0
+		for k := range idx[j+1] {
+			if ke[idx[j+1][k]] + pe[idx[j+1][k]] < 0 {
+				nBound++
+			}
+		}
+
+		out[j] = float64(nBound) / float64(len(idx[j+1]))
+	}
+
+	comment := `# 0 - R (Mpc/h)
+# 1 - M_bound(<R) / M_total(<R)`
+	PrintToFile(i, "l_bullock", comment, rMids, out)
 }
 
 func getFileNames() (xNames, vNames []string) {
@@ -444,7 +533,8 @@ func getFileNames() (xNames, vNames []string) {
 
 func AnalyzeHalo(iHalo int) {
 	bounds := FileBounds(BoundsName)
-	idx := IntersectingFiles(VecHalo[iHalo], RHalo[iHalo], bounds)
+	rVir := MvirToRvirZ0(MassHalo[iHalo])
+	idx := IntersectingFiles(VecHalo[iHalo], float32(rVir), bounds)
 
 	xFileNames, vFileNames := getFileNames()
 
@@ -492,12 +582,14 @@ func AnalyzeHalo(iHalo int) {
 		midBuf = rdV.ReuseMidBuf()
 		rdX.Close()
 
-		x, v = FilterVec(xBuf, vBuf, x, v, VecHalo[iHalo], RHalo[iHalo], L)
+		x, v = FilterVec(xBuf, vBuf, x, v, VecHalo[iHalo], float32(rVir), L)
 	}
 
 
 	CalculateProfiles(x, v, iHalo)
 }
+
+
 func main() {
 	for iHalo := range VecHalo {
 		AnalyzeHalo(iHalo)
