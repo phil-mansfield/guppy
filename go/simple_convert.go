@@ -19,6 +19,7 @@ const (
 	
 	L = 62.5
 	SimName = "Erebos_CBol_L63"
+	SkipMod = -1
 )
 
 var (
@@ -27,8 +28,8 @@ var (
 	AccString = "2.5"
 
 	Span = [3]int{ 128, 128, 128 }
-	FileMin = [3]int{ 0, 0, 0 }
-	FileMax = [3]int{ 1, 1, 1 }
+	FileMin = [3]int{ 5, 6, 0 }
+	FileMax = [3]int{ 6, 7, 1 }
 	GadgetTypes = []string{"v32", "v32", "u32"}
 	GadgetNames = []string{"x", "v", "id"}
 	Order = binary.LittleEndian
@@ -54,6 +55,10 @@ func Names() (in, outFmt []string) {
 			continue
 		}
 		
+		if SkipMod > 0 && snap % SkipMod != 0 {
+			continue
+		}
+
 		for fz := FileMin[2]; fz <= FileMax[2]; fz++ {
 			for fy := FileMin[1]; fy <= FileMax[1]; fy++ {
 				for fx := FileMin[0]; fx <= FileMax[0]; fx++{
@@ -221,9 +226,9 @@ func ParseArgs() {
 	if len(os.Args) == 1 { return }
 	AccString = os.Args[1]
 	var err error 
-	XDelta, err = strconv.ParseFloat(AccString, 64)
+	VDelta, err = strconv.ParseFloat(AccString, 64)
 	if err != nil { panic(err.Error()) }
-	VDelta = XDelta * 1e-3
+	XDelta = VDelta * 1e-3
 }
 
 func main() {
