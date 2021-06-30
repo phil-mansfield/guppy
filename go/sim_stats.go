@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"math"
+	"math/rand"
 	"os"
+	"log"
+	"strconv"
 
 	"gonum.org/v1/gonum/mat"
 
@@ -18,42 +21,63 @@ const (
 	Mp = 1.70e7 // Msun/h
 	Eps = 1e-3 // Mpc/h
 	SimName = "Erebos_CBol_L63"
-	XFileBase = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/dx_20/snapdir_100/sheet%d%d%d.gup"
-	VFileBase = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/dv_20/snapdir_100/sheet%d%d%d.gup"
+	XFileBase = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/dx_%s/snapdir_100/sheet%d%d%d.gup"
+	VFileBase = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/dv_%s/snapdir_100/sheet%d%d%d.gup"
 	BoundsName = "Erebos_CBol_L63.bounds.txt"
-	ProfileDir = "profiles/delta_20_20"
+	ProfileDir = "profiles/delta_%s_%s"
 	Snap = 100
 
 	G = 4.30091e-9 // Mpc / Msun (kms/)^2
 )
 
 var (
-	VecHalo = [][3]float32{
-		{39.09977, 21.61123, 50.9799 },
-		{48.7807 , 44.43203, 45.31415},
-		{35.27232, 23.53042, 32.002  },
-		{29.84817, 18.79563, 35.643  },
-		{42.34903, 21.92361, 51.54549},
-		{40.02427, 53.96078, 34.52372},
-		{48.42057, 19.49928, 53.84796},
-		{ 5.85089,  6.55777, 19.45434},
-		{ 3.83299,  9.02794,  7.4789 },
-		{ 2.53586, 51.90359, 38.44151},
+	AccStrX = "-1"
+	AccStrV = "-1"
+)
+
+var (
+	VecHalo = [][3]float32{ }
+	VelHalo = [][3]float32{ }
+	MassHalo = []float32{ }
+
+	TrueCenter = [][3]float32{
+		{24.646318, 50.388489, 40.691135},
+		{2.943359, 25.294899, 43.519661},
+		{7.378795, 62.006016, 56.563351},
+		{1.100551, 26.487192, 43.755669},
+		{3.140521, 19.414217, 18.770119},
+		{14.061264, 25.592108, 12.812575},
+		{31.813524, 20.182394, 34.111942},
+		{23.294991, 22.222094, 30.768160},
+		{7.783168, 3.619000, 53.702065},
+		{5.867202, 12.762835, 16.456970},
+		{5.791772, 6.827592, 19.124933},
+		{5.980662, 44.681656, 23.707287},
+		{17.437038, 18.260902, 37.362926},
+		{36.061024, 50.672203, 10.101091},
+		{40.321720, 54.610283, 34.308846},
+		{41.934315, 21.636044, 51.683231},
+		{52.467125, 49.394814, 58.740944},
+		{48.242256, 7.875600, 42.000328},
+		{37.455990, 34.805462, 6.164632},
+		{4.307057, 8.208133, 7.663888},
+		{50.695938, 48.622326, 55.069504},
+		{10.721359, 37.308678, 24.777666},
+		{5.999717, 53.566811, 34.915215},
+		{0.943466, 56.876759, 49.666649},
+		{18.209871, 17.591198, 2.345853},
+		{36.439930, 59.208130, 49.026863},
+		{2.962955, 8.589188, 7.916003},
+		{4.008523, 61.911388, 34.385906},
+		{7.778188, 62.209148, 57.454563},
+		{62.369953, 39.413383, 41.809113},
+		{2.046329, 55.506100, 35.526775},
+		{59.247417, 29.100414, 44.971905},
+		{2.196865, 55.654625, 35.674904},
+		{37.892406, 16.701111, 49.943054},
+		{40.043858, 53.965565, 34.506462},
+		{2.185093, 51.061249, 38.743866},
 	}
-	VelHalo = [][3]float32{
-		{ 3.6555e+02, -3.7184e+02, -1.6995e+02},
-		{ 5.5200e+01,  1.3279e+02, -1.9325e+02},
-		{-2.9440e+01, -2.0304e+02,  1.9189e+02},
-		{ 1.3958e+02,  2.6710e+01,  3.9000e-01},
-		{ 5.0990e+01, -3.3153e+02, -1.5383e+02},
-		{-3.1000e-01, -2.6570e+01,  2.2095e+02},
-		{-2.4392e+02, -1.5097e+02, -1.7828e+02},
-		{-4.0110e+01,  4.8040e+01,  3.9040e+01},
-		{ 3.5740e+01, -1.5160e+01,  1.7210e+02},
-		{ 4.5780e+01,  2.2764e+02, -6.9480e+01},
-	}
-	MassHalo = []float32{ 5.742e+13, 5.916e+13, 6.081e+13, 6.248e+13, 9.282e+13,
-		9.547e+13, 1.041e+14, 1.387e+14, 2.181e+14, 3.166e+14 }
 )
 
 func MvirToRvirZ0(mvir float32) float64 {
@@ -61,6 +85,28 @@ func MvirToRvirZ0(mvir float32) float64 {
 }
 
 type Bounds [2][3]float32
+
+func LoadTargetHaloes(fname string) {
+	file := catio.TextFile(fname)
+	cols := file.ReadFloat32s([]int{0, 2, 3, 4, 5, 6, 7})
+	mvir, x, y, z := cols[0], cols[1], cols[2], cols[3]
+	vx, vy, vz := cols[4], cols[5], cols[6]
+
+	n := len(x)
+	VecHalo = make([][3]float32, n)
+	VelHalo = make([][3]float32, n)
+	MassHalo = make([]float32, n)
+
+	for i := 0; i < n; i++ {
+		VecHalo[i][0] = float32(x[i])
+		VecHalo[i][1] = float32(y[i])
+		VecHalo[i][2] = float32(z[i])
+		VelHalo[i][0] = float32(vx[i])
+		VelHalo[i][1] = float32(vy[i])
+		VelHalo[i][2] = float32(vz[i])
+		MassHalo[i] = float32(mvir[i])
+	}
+}
 
 func FileBounds(boundsName string) []Bounds {
 	file := catio.TextFile(boundsName)
@@ -176,11 +222,25 @@ func FilterVec(
 }
 
 func CalculateProfiles(x, v [][3]float32, i int) {
-	DensityProfile(x, v, i)
-	CricularVelocityProfile(x, v, i)
-	ShapeProfile(x, v, i)
-	AngularVelocityProfile(x, v, i)
-	BoundFractionProfile(x, v, i)
+	//log.Printf("Analyzing halo %d", i)
+
+	pe := PotentialEnergy(x)
+	ke := KineticEnergy(VelHalo[i], v)
+
+	xb, vb := [][3]float32{ }, [][3]float32{ }
+
+	for j := range pe {
+		if pe[j] + ke[j] < 0 {
+			xb, vb = append(xb, x[j]), append(vb, v[j])
+		}
+	}
+
+	DensityProfile(xb, vb, i)
+	CricularVelocityProfile(xb, vb, i)
+	ShapeProfile(xb, vb, i)
+	AngularVelocityProfile(xb, vb, i)
+	BoundFractionProfile(x, xb, i)
+	EmulateMostBoundDistribution(pe, x, v, i)
 }
 
 
@@ -264,7 +324,8 @@ func radialBinCenters(nBins int, rMin, rMax float64) []float64 {
 }
 
 func PrintToFile(i int, varName, comment string, columns ...[]float64) {
-	f, err := os.Create(fmt.Sprintf("%s/%s.%d.txt", ProfileDir, varName, i))
+	dir := fmt.Sprintf(ProfileDir, AccStrX, AccStrV)
+	f, err := os.Create(fmt.Sprintf("%s/%s.%d.txt", dir, varName, i))
 	if err != nil { panic(err.Error()) }
 	defer f.Close()
 
@@ -381,7 +442,7 @@ func sort3(x, y, z float64) (l1, l2, l3 float64) {
 func ShapeProfile(x, v [][3]float32, i int) {
 	rVir := MvirToRvirZ0(MassHalo[i])
 	rMin := math.Pow(10, -3.5)
-	nBins := 40
+	nBins := 20
 
 	xHist, _ := radialHist(nBins, rMin, rVir, x, v, i)
 	rMids := radialBinCenters(nBins, rMin, rVir)
@@ -427,7 +488,7 @@ func specificJ(x, v [][3]float64, xh, vh [3]float32) [3]float64 {
 func AngularVelocityProfile(x, v [][3]float32, i int) {
 	rVir := MvirToRvirZ0(MassHalo[i])
 	rMin := math.Pow(10, -3.5)
-	nBins := 40
+	nBins := 20
 
 	xHist, vHist := radialHist(nBins, rMin, rVir, x, v, i)
 	rMids := radialBinCenters(nBins, rMin, rVir)
@@ -485,16 +546,16 @@ func PotentialEnergy(x [][3]float32) []float64 {
 	return pe
 }
 
-func BoundFractionProfile(x, v [][3]float32, i int) {
+func BoundFractionProfile(x, xb [][3]float32, i int) {
 	rVir := MvirToRvirZ0(MassHalo[i])
 	rMin := math.Pow(10, -3.5)
-	nBins := 40
+	nBins := 20
 
 	idx := radialIdxHist(nBins, rMin, rVir, x, i)
 	rMids := radialBinCenters(nBins, rMin, rVir)
-	
-	ke := KineticEnergy(VelHalo[i], v)
-	pe := PotentialEnergy(x)
+
+	xHist, _ := radialHist(nBins, rMin, rVir, x, x, i)
+	xbHist, _ := radialHist(nBins, rMin, rVir, xb, xb, i)
 
 	out := make([]float64, nBins)
 	for j := range out {
@@ -503,27 +564,102 @@ func BoundFractionProfile(x, v [][3]float32, i int) {
 			continue
 		}
 
-		nBound := 0
-		for k := range idx[j+1] {
-			if ke[idx[j+1][k]] + pe[idx[j+1][k]] < 0 {
-				nBound++
-			}
-		}
-
-		out[j] = float64(nBound) / float64(len(idx[j+1]))
+		out[j] = float64(len(xbHist[j+1])) / float64(len(xHist[j+1]))
 	}
 
 	comment := `# 0 - R (Mpc/h)
 # 1 - M_bound(<R) / M_total(<R)`
-	PrintToFile(i, "l_bullock", comment, rMids, out)
+	PrintToFile(i, "f_bound", comment, rMids, out)
+}
+
+func iMin(x []float64) int {
+	im := 0
+	for i := range x {
+		if x[i] < x[im] { im = i }
+	}
+	return im
+}
+
+func EmulateMostBoundDistribution(
+	pe []float64, x, v [][3]float32, i int,
+) {
+	dv64, _ := strconv.ParseFloat(AccStrV, 64)
+	dv := float32(dv64)
+
+	vh, xh := VelHalo[i], TrueCenter[i]
+	energy := make([]float64, len(v))
+
+	logRMin, logRMax := -4.0, 0.0
+	bins := 80
+	dlogR := (logRMax - logRMin) / float64(bins)
+
+	hist := make([]float64, bins+1)
+	histR := make([]float64, bins+1)
+	for j := 0; j < bins; j++ {
+		histR[j+1] = logRMin + dlogR*(float64(j) + 0.5)
+	}
+
+	for trial := 0; trial < 1000; trial++ {
+		vTrial := EmulatePixelation(v, dv)
+		ke := KineticEnergy(vh, vTrial)
+
+		for j := range energy {
+			energy[j] = ke[j] + pe[j]
+		}
+
+		im := iMin(energy)
+
+		r2 := PeriodicR2(x[im], xh, L)
+		logR := math.Log10(math.Sqrt(float64(r2)))
+
+		if logR <= logRMin {
+			hist[0]++
+			continue
+		}
+
+		idx := int(math.Floor((logR - logRMin) / dlogR))
+		if idx < 0 || idx >= bins { continue }
+		hist[idx+1]++
+
+		if trial == 0 {
+			fmt.Println("# r, phi + ke")
+			for j := range energy {
+				r2 := PeriodicR2(x[j], xh, L)
+				fmt.Printf("%7.4f %7.4f\n",
+					math.Log10(math.Sqrt(float64(r2))), energy[j],
+				)
+			}
+		}
+	}
+
+	//fmt.Printf("%.0f\n", hist)
+	//fmt.Printf("%.3f\n", histR)
+
+	comment := `# 0 - R (Mpc/h)
+# 1 - M_bound(<R) / M_total(<R)`
+	PrintToFile(i, "r_min_distr", comment, histR, hist)
+}
+
+
+func EmulatePixelation(x [][3]float32, dx float32) [][3]float32 {
+	out := make([][3]float32, len(x))
+	for i :=  range x {
+		for dim := 0; dim < 3; dim++ {
+			out[i][dim] =float32(float64(dx)*(math.Floor(float64(x[i][dim]/dx)) +
+				rand.Float64()))
+		}
+	}
+	return out
 }
 
 func getFileNames() (xNames, vNames []string) {
 	for iz := 0; iz <= 7; iz++ {
 		for iy := 0; iy <= 7; iy++ {
 			for ix := 0; ix <= 7; ix++ {
-				xNames = append(xNames, fmt.Sprintf(XFileBase, ix, iy, iz))
-				vNames = append(vNames, fmt.Sprintf(VFileBase, ix, iy, iz))
+				xName := fmt.Sprintf(XFileBase, AccStrX, ix, iy, iz)
+				vName := fmt.Sprintf(VFileBase, AccStrV, ix, iy, iz)
+				xNames = append(xNames, xName)
+				vNames = append(vNames, vName)
 			}
 		}
 	}
@@ -531,10 +667,14 @@ func getFileNames() (xNames, vNames []string) {
 	return xNames, vNames
 }
 
-func AnalyzeHalo(iHalo int) {
+func AnalyzeHalo(iHalo int) {	
+	mult := 1.25
+
 	bounds := FileBounds(BoundsName)
 	rVir := MvirToRvirZ0(MassHalo[iHalo])
-	idx := IntersectingFiles(VecHalo[iHalo], float32(rVir), bounds)
+	idx := IntersectingFiles(VecHalo[iHalo], float32(rVir*mult), bounds)
+
+	log.Printf("Reading %d files for halo %d", len(idx), iHalo)
 
 	xFileNames, vFileNames := getFileNames()
 
@@ -547,7 +687,10 @@ func AnalyzeHalo(iHalo int) {
 	buf := compress.NewBuffer(0)
 	midBuf := []byte{ }
 
-	for _, i := range idx {
+	for ii, i := range idx {
+		if ii != 0 && ii % 5 == 0 {
+			//log.Printf("%d fields read", ii)
+		}
 		// Read in x
 		rdX, err := compress.NewReader(xFileNames[i], buf, midBuf)
 		if err != nil { panic(err.Error()) }
@@ -582,7 +725,7 @@ func AnalyzeHalo(iHalo int) {
 		midBuf = rdV.ReuseMidBuf()
 		rdX.Close()
 
-		x, v = FilterVec(xBuf, vBuf, x, v, VecHalo[iHalo], float32(rVir), L)
+		x, v = FilterVec(xBuf, vBuf, x, v, VecHalo[iHalo],float32(rVir*mult), L)
 	}
 
 
@@ -591,7 +734,11 @@ func AnalyzeHalo(iHalo int) {
 
 
 func main() {
-	for iHalo := range VecHalo {
+	AccStrX, AccStrV = os.Args[1], os.Args[2]
+	LoadTargetHaloes("profiles/target_haloes.txt")
+	
+	for iHalo := range MassHalo {
+		if iHalo != 7 { continue }
 		AnalyzeHalo(iHalo)
 	}
 }
