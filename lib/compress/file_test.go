@@ -5,11 +5,44 @@ import (
 	"encoding/binary"
 	"testing"
 	"fmt"
+	"bytes"
 
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
 	"github.com/phil-mansfield/guppy/lib/snapio"
 )
+
+func TestHeader(t *testing.T) {
+	buf := bytes.NewBuffer([]byte{})
+	hd1 := &Header{
+		FixedWidthHeader{1<<8, 1<<30, 0.5, 0.27, 0.70, 100.0, 3e9},
+		[]byte{5, 4, 3, 2, 1, 0}, []string{"a", "bb", "ccc", "", "eeeee"},
+		[]string{"u32", "u32", "f32", "f64", "u64"},
+	}
+	hd2 := *hd1
+
+	hd2.write(buf, binary.LittleEndian)
+
+	hd3 := &Header{ }
+	hd3.read(buf, binary.LittleEndian)
+
+	hd1.Names = append(hd1.Names, "id")
+	hd1.Types = append(hd1.Types, "u64")
+
+	if hd3.FixedWidthHeader != hd1.FixedWidthHeader {
+		t.Errorf("Written fixed-width header = %v, but read header = %v.",
+			hd1, hd3)
+	} else if !eq.Bytes(hd1.OriginalHeader, hd3.OriginalHeader) {
+		t.Errorf("Written original header = %d, but read original header = %d.",
+			hd1.OriginalHeader, hd3.OriginalHeader)
+	} else if !eq.Strings(hd1.Names, hd3.Names) {
+		t.Errorf("Written names = %s, but read names = %s.",
+			hd1.Names, hd3.Names)
+	} else if !eq.Strings(hd1.Types, hd3.Types) {
+		t.Errorf("Written types = %s, bute read types = %s.",
+			hd1.Types, hd3.Types)
+	}
+}
 
 func TestFileSmall(t *testing.T) {
 	span0 := [3]int{ 3, 4, 5 }
@@ -59,7 +92,7 @@ func TestFileSmall(t *testing.T) {
 	rd, err := NewReader("test_files/small_test.gup", buf, []byte{ })
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
-	names := rd.Names()
+	names := rd.Names
 	expNames := []string{"x[0]", "x[1]", "x[2]", "x3"}
  	if !eq.Strings(names, expNames) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
@@ -157,7 +190,7 @@ func TestFileLarge(t *testing.T) {
 	rd, err := NewReader("test_files/large_test.gup", buf, []byte{ })
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
-	names = rd.Names()
+	names = rd.Names
 	expNames := []string{"x[0]", "v[0]", "x[1]", "v[1]", "x[2]", "v[2]"}
 	dims := []int{ 0, 0, 1, 1, 2, 2 }
  	if !eq.Strings(names, expNames) {

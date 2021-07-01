@@ -5,8 +5,10 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"io"
 
 	"github.com/phil-mansfield/guppy/lib/particles"
+	"github.com/phil-mansfield/guppy/lib/snapio"
 )
 
 const (
@@ -26,9 +28,10 @@ const (
 // disk.
 type Writer struct {
 	fname string
+	snapHeader snapio.Header
 	buf *Buffer
 	order binary.ByteOrder
-	names []string
+	names, types []string
 	methodFlags []uint32
 	headerEdges, dataEdges []int64
 	header, data *bytes.Buffer
@@ -46,8 +49,8 @@ func NewWriter(
 	header := bytes.NewBuffer([]byte{ })
 	data := bytes.NewBuffer(b[:0]) 
 	return &Writer{
-		fname, buf, order,
-		[]string{}, []uint32{},
+		fname, nil, buf, order,
+		[]string{}, []string{}, []uint32{},
 		[]int64{0}, []int64{0},
 		header, data,
 	}
@@ -145,14 +148,97 @@ func (wr *Writer) Flush() ([]byte, error) {
 	return bData, nil
 }
 
+type FixedWidthHeader struct {
+	// N and Ntot give the number of particles in the file and in the
+	// total simulation, respectively.
+	N, Ntot int64
+	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
+	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
+	// mass in Msun/h.
+	Z, OmegaM, H100, L, Mass float64
+}
+
+type Header struct {
+	FixedWidthHeader
+	// OriginalHeader is the original header of the one of the simulation 
+	OriginalHeader []byte
+	// Names gives the names of all the variables stored in the file.
+	// Types give the types of these variables. "u32"/"u64" give 32-bit and
+	// 64-bit unisghned integers, respectively, anf "f32"/"f64" give 32-bit
+	// and 64-bit floats, respectively.
+	Names, Types []string
+}
+
+func (hd *Header) read(f io.Reader, order binary.ByteOrder) error {
+	err := binary.Read(f, order, &hd.FixedWidthHeader)
+	if err != nil { return err }
+
+	var nOHeader uint32
+	if err := binary.Read(f, order, &nOHeader); err != nil { return err }
+	hd.OriginalHeader = make([]byte, nOHeader)
+
+	if _, err := f.Read(hd.OriginalHeader); err != nil { return err }
+
+	var nFields uint32
+	if err := binary.Read(f, order, &nFields); err != nil { return err }
+	hd.Names, hd.Types = make([]string, nFields+1), make([]string, nFields+1)
+
+	nNames := make([]uint32, nFields)
+	if err := binary.Read(f, order, nNames); err != nil { return err }
+
+	for i := 0; i < len(nNames); i++ {
+		b := make([]byte, nNames[i])
+		if _, err = f.Read(b); err != nil { return err }
+		hd.Names[i] = string(b)
+	}
+
+	for i := 0; i < len(nNames); i++ {
+		b := make([]byte, 3)
+		if _, err = f.Read(b); err != nil { return err }
+		hd.Types[i] = string(b)
+	}
+
+	hd.Names[nFields], hd.Types[nFields] = "id", "u64"
+	return nil
+}
+
+func (hd *Header) write(f io.Writer, order binary.ByteOrder) error {
+	err := binary.Write(f, order, &hd.FixedWidthHeader)
+	if err != nil { return err }
+
+	nOHeader := uint32(len(hd.OriginalHeader))
+	if err := binary.Write(f, order, nOHeader); err != nil { return err }
+
+	if _, err := f.Write(hd.OriginalHeader); err != nil { return err }
+
+	nFields := uint32(len(hd.Names))
+	if err := binary.Write(f, order, &nFields); err != nil { return err }
+
+	nNames := make([]uint32, nFields)
+	for i := range nNames { nNames[i] = uint32(len(hd.Names[i])) }
+	if err := binary.Write(f, order, nNames); err != nil { return err }
+
+	for i := range hd.Names {
+		b := []byte(hd.Names[i])
+		if _, err = f.Write(b); err != nil { return err }
+	}
+
+	for i := range hd.Types {
+		b := []byte(hd.Types[i])
+		if _, err = f.Write(b); err != nil { return err }
+	}
+
+	return nil
+}
+
 // Reader handles the I/O and navigation asosociated with reading compressed
 // fields from disk. Unlike Writer, it will need to be closed after use.
 type Reader struct {
+	Header
 	fname string
 	f *os.File
 	order binary.ByteOrder
 	headerEdges, dataEdges []int64
-	names []string
 	methodFlags []MethodFlag
 	buf *Buffer
 
@@ -173,39 +259,28 @@ func NewReader(
 	order, err := checkFile(fname, f)
 	if err != nil { return nil, err }
 
-	var nFields uint32
-	err = binary.Read(f, order, &nFields)
+	hd := &Header{ }
+	if err := hd.read(f, order); err != nil { return nil, err }
+	nFields := len(hd.Names) - 1
 
 	rd := &Reader{
-		fname, f, order, make([]int64, nFields+1), make([]int64, nFields+1),
-		make([]string, nFields), make([]MethodFlag, nFields), buf, midBuf,
-	}
-	nNames := make([]uint32, nFields)
-
-	// Read in the field names
-	err = binary.Read(f, order, nNames)
-	if err != nil { return nil, err}
-
-	for i := range rd.names {
-		b := make([]byte, nNames[i])
-		_, err = f.Read(b)
-		if err != nil { return nil, err }
-		rd.names[i] = string(b)
+		*hd, fname, f, order, make([]int64, nFields+1),
+		make([]int64, nFields+1), make([]MethodFlag, nFields), buf, midBuf,
 	}
 
 	// Read in navigation information
-	err = binary.Read(f, order, rd.methodFlags)
-	if err != nil { return nil, err }
-	err = binary.Read(f, order, rd.headerEdges)
-	if err != nil { return nil, err }
-	err = binary.Read(f, order, rd.dataEdges)
-	if err != nil { return nil, err }
-
+	if err := binary.Read(f, order, rd.methodFlags); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(f, order, rd.headerEdges); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(f, order, rd.dataEdges); err != nil {
+		return nil, err
+	}
+	
 	return rd, err
 }
-
-// Names returns the names of all the variables in the file.
-func (rd *Reader) Names() []string { return rd.names }
 
 // ReadField reads a field from the reader using the given method. (Note: use
 // Names() to find these.)
@@ -214,11 +289,11 @@ func (rd *Reader) Names() []string { return rd.names }
 // want to call ReadField again, YOU WILL NEED TO COPY THE DATA OUT OF THE FIELD
 // and into your own locally-allocated array or you could lose it.
 func (rd *Reader) ReadField(name string) (particles.Field, error) {
-	i := findString(rd.names, name)
+	i := findString(rd.Names, name)
 	if i == -1 { 
 		return nil, fmt.Errorf("The field '%s' is not in the compressed " +
 			"file %s. It conly contains the fields %s.",
-			name, rd.fname, rd.names)
+			name, rd.fname, rd.Names)
 	}
 
 	headerOffset, dataOffset := rd.headerEdges[i], rd.dataEdges[i]
