@@ -76,8 +76,14 @@ func TestFileSmall(t *testing.T) {
 	buf := NewBuffer(0)
 	b := []byte{ }
 
+	fakeFile, _ := snapio.NewFakeFile(
+		[]string{"x", "x3"},
+		[]interface{}{[]float32{}, []float64{}}, 1000, order,
+	)
+	fakeHd, _ := fakeFile.ReadHeader()
+
 	var err error
-	wr := NewWriter("test_files/small_test.gup", buf, b, order)
+	wr := NewWriter("test_files/small_test.gup", fakeHd, buf, b, order)
 	for i := range fields {
 		err = wr.AddField(fields[i], methods[i])
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
@@ -92,13 +98,19 @@ func TestFileSmall(t *testing.T) {
 	rd, err := NewReader("test_files/small_test.gup", buf, []byte{ })
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
-	names := rd.Names
-	expNames := []string{"x[0]", "x[1]", "x[2]", "x3"}
+	names, types := rd.Names, rd.Types
+	expNames := []string{"x[0]", "x[1]", "x[2]", "x3", "id"}
  	if !eq.Strings(names, expNames) {
+ 		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
+ 	}
+	expTypes := []string{"f64", "f32", "u64", "u32", "u64"}
+ 	if !eq.Strings(types, expTypes) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
  	}
 
 	for i := range names {
+		if names[i] == "id" { continue }
+
 		f, err := rd.ReadField(names[i])
 		if err != nil {
 			t.Errorf("Error in ReadField('%s'): %s", names[i], err.Error())
@@ -159,7 +171,10 @@ func TestFileLarge(t *testing.T) {
 	buf := NewBuffer(0)
 	b := []byte{ }
 
-	wr := NewWriter("test_files/large_test.gup", buf, b, order)
+	snapHd, err := f.ReadHeader()
+	if err != nil { t.Fatalf(err.Error()) }
+
+	wr := NewWriter("test_files/large_test.gup", snapHd, buf, b, order)
 	xMethod := NewLagrangianDelta(span, xDelta)
 	vMethod := NewLagrangianDelta(span, vDelta)
 
@@ -191,14 +206,15 @@ func TestFileLarge(t *testing.T) {
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
 	names = rd.Names
-	expNames := []string{"x[0]", "v[0]", "x[1]", "v[1]", "x[2]", "v[2]"}
+	expNames := []string{"x[0]", "v[0]", "x[1]", "v[1]", "x[2]", "v[2]", "id"}
 	dims := []int{ 0, 0, 1, 1, 2, 2 }
  	if !eq.Strings(names, expNames) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
  	}
 
  	for i := range names {
-
+ 		if names[i] == "id" { continue }
+ 
  		field, err := rd.ReadField(names[i])
  		if err != nil { t.Fatalf(err.Error()) }
 

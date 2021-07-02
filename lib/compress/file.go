@@ -9,6 +9,8 @@ import (
 
 	"github.com/phil-mansfield/guppy/lib/particles"
 	"github.com/phil-mansfield/guppy/lib/snapio"
+
+	"unsafe"
 )
 
 const (
@@ -27,11 +29,10 @@ const (
 // to finally call Flush() when you want to flush all the buffers and write to
 // disk.
 type Writer struct {
+	Header
 	fname string
-	snapHeader snapio.Header
 	buf *Buffer
 	order binary.ByteOrder
-	names, types []string
 	methodFlags []uint32
 	headerEdges, dataEdges []int64
 	header, data *bytes.Buffer
@@ -44,13 +45,14 @@ type Writer struct {
 // don't want to make excess heap allocaitons, pass the same array returned by
 // Flush(). You can pass the same compress.Buffer each time.
 func NewWriter(
-	fname string, buf *Buffer, b []byte, order binary.ByteOrder,
+	fname string, snapioHeader snapio.Header,
+	buf *Buffer, b []byte, order binary.ByteOrder,
 ) (*Writer) {
 	header := bytes.NewBuffer([]byte{ })
 	data := bytes.NewBuffer(b[:0]) 
+	hd := convertSnapioHeader(snapioHeader)
 	return &Writer{
-		fname, nil, buf, order,
-		[]string{}, []string{}, []uint32{},
+		*hd, fname, buf, order, []uint32{},
 		[]int64{0}, []int64{0},
 		header, data,
 	}
@@ -59,6 +61,7 @@ func NewWriter(
 // Add field adds a new field to the file which will be compressed with
 // a given method.
 func (wr *Writer) AddField(field particles.Field, method Method) error {
+	wr.N = int64(field.Len())
 	method.SetOrder(wr.order)
 
 	err := method.WriteInfo(wr.header)
@@ -70,7 +73,18 @@ func (wr *Writer) AddField(field particles.Field, method Method) error {
 	wr.headerEdges = append(wr.headerEdges, int64(wr.header.Len()))
 	wr.dataEdges = append(wr.dataEdges, int64(wr.data.Len()))
 	wr.methodFlags = append(wr.methodFlags, uint32(method.MethodFlag()))
-	wr.names = append(wr.names, field.Name())
+
+	wr.Names = append(wr.Names, field.Name())
+	switch field.Data().(type) {
+	case []uint32: wr.Types = append(wr.Types, "u32")
+	case []uint64: wr.Types = append(wr.Types, "u64")
+	case []float32: wr.Types = append(wr.Types, "f32")
+	case []float64: wr.Types = append(wr.Types, "f64")
+	default:
+		panic(fmt.Sprintf("Internal error: unknown-typed " + 
+			"paritcles.Field (name: '%s') given " + 
+			"to Writer.AddField()", field.Name()))
+	}
 
 	return nil
 }
@@ -96,25 +110,9 @@ func (wr *Writer) Flush() ([]byte, error) {
 	if err != nil { return nil, err }
 	nHd += 4
 
-	// Write field names (needed for navigation).
-	nFields := uint32(len(wr.dataEdges) - 1)
-
-	err = binary.Write(fp, wr.order, nFields)
+	n, err := wr.Header.write(fp, wr.order)
 	if err != nil { return nil, err }
-	nHd += 4
-
-	nNames := make([]uint32, len(wr.names))
-	for i := range nNames { nNames[i] = uint32(len(wr.names[i])) }
-
-	err = binary.Write(fp, wr.order, nNames)
-	if err != nil { return nil, err }
-	nHd += 4*len(nNames)
-
-	for i := range wr.names {
-		n, err := fp.Write([]byte(wr.names[i]))
-		if err != nil { return nil, err }
-		nHd += n
-	}
+	nHd += n
 
 	// Write the actual navigation information.
 	nHd += 4*len(wr.methodFlags) // methodFalgs size
@@ -169,6 +167,15 @@ type Header struct {
 	Names, Types []string
 }
 
+func convertSnapioHeader(snapioHeader snapio.Header) *Header {
+	return &Header{
+		FixedWidthHeader{0, snapioHeader.NTot(),
+			snapioHeader.Z(), snapioHeader.OmegaM(), snapioHeader.H100(),
+			snapioHeader.L(), snapioHeader.Mass()},
+		snapioHeader.ToBytes(), []string{}, []string{},
+	}	
+}
+
 func (hd *Header) read(f io.Reader, order binary.ByteOrder) error {
 	err := binary.Read(f, order, &hd.FixedWidthHeader)
 	if err != nil { return err }
@@ -202,33 +209,41 @@ func (hd *Header) read(f io.Reader, order binary.ByteOrder) error {
 	return nil
 }
 
-func (hd *Header) write(f io.Writer, order binary.ByteOrder) error {
+func (hd *Header) write(f io.Writer, order binary.ByteOrder) (int, error) {
+	n := 0
 	err := binary.Write(f, order, &hd.FixedWidthHeader)
-	if err != nil { return err }
+	if err != nil { return 0, err }
+	n += int(unsafe.Sizeof(hd.FixedWidthHeader))
 
 	nOHeader := uint32(len(hd.OriginalHeader))
-	if err := binary.Write(f, order, nOHeader); err != nil { return err }
+	if err := binary.Write(f, order, nOHeader); err != nil { return 0, err }
+	n += 4
 
-	if _, err := f.Write(hd.OriginalHeader); err != nil { return err }
+	if _, err := f.Write(hd.OriginalHeader); err != nil { return 0, err }
+	n += int(nOHeader)
 
 	nFields := uint32(len(hd.Names))
-	if err := binary.Write(f, order, &nFields); err != nil { return err }
+	if err := binary.Write(f, order, &nFields); err != nil { return 0, err }
+	n += 4
 
 	nNames := make([]uint32, nFields)
 	for i := range nNames { nNames[i] = uint32(len(hd.Names[i])) }
-	if err := binary.Write(f, order, nNames); err != nil { return err }
+	if err := binary.Write(f, order, nNames); err != nil { return 0, err }
+	n += len(nNames)*4
 
 	for i := range hd.Names {
 		b := []byte(hd.Names[i])
-		if _, err = f.Write(b); err != nil { return err }
+		if _, err = f.Write(b); err != nil { return 0, err }
+		n += len(b)
 	}
 
 	for i := range hd.Types {
 		b := []byte(hd.Types[i])
-		if _, err = f.Write(b); err != nil { return err }
+		if _, err = f.Write(b); err != nil { return 0, err }
+		n += 3
 	}
 
-	return nil
+	return n, nil
 }
 
 // Reader handles the I/O and navigation asosociated with reading compressed
@@ -340,7 +355,10 @@ func selectMethod(flag MethodFlag) Method {
 	default:
 		panic(fmt.Sprintf("The method flag %d isn't recognized by " + 
 			"Reader.ReadField. This is almost certianly an internal error, " + 
-			"where part of the .", flag))
+			"where there's some sort of file offset that's being read " + 
+			"incorrectly. It could also be that your local version of Guppy " + 
+			"is older than the version that made this file and there's a bug " + 
+			"in Guppy's code that checks for this.", flag))
 	}
 }
 
