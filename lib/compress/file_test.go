@@ -15,7 +15,7 @@ import (
 func TestHeader(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{})
 	hd1 := &Header{
-		FixedWidthHeader{1<<8, 1<<30, 0.5, 0.27, 0.70, 100.0, 3e9},
+		FixedWidthHeader{1<<8, 1<<30, 15, 0.5, 0.27, 0.70, 100.0, 3e9},
 		[]byte{5, 4, 3, 2, 1, 0}, []string{"a", "bb", "ccc", "", "eeeee"},
 		[]string{"u32", "u32", "f32", "f64", "u64"},
 	}
@@ -45,6 +45,9 @@ func TestHeader(t *testing.T) {
 }
 
 func TestFileSmall(t *testing.T) {
+	// I ended up deciding that I really don't like this functionality,
+	// so I stop it at the user level (i.e. putting different sized blocks
+	// of variables in the same file). But the backend still supports it.
 	span0 := [3]int{ 3, 4, 5 }
 	x0 := make([]float64, span0[0]*span0[1]*span0[2])
 	span1 := [3]int{ 4, 4, 4 }
@@ -53,11 +56,15 @@ func TestFileSmall(t *testing.T) {
 	x2 := make([]uint64, span2[0]*span2[1]*span2[2])
 	span3 := [3]int{8, 8, 1}
 	x3 := make([]uint32, span3[0]*span3[1]*span3[2])
+	id := make([]uint64, span3[0]*span3[1]*span3[2])
 
 	for i := range x0 { x0[i] = rand.Float64() - 0.5 }
 	for i := range x1 { x1[i] = float32(rand.Float64()) - 0.5 }
 	for i := range x2 { x2[i] = uint64(rand.Intn(100)) }
 	for i := range x3 { x3[i] = uint32(rand.Intn(100)) }
+
+	idOffset := uint64(15)
+	for i := range id { id[i] = uint64(i) + idOffset }
 
 	fields := []particles.Field{
 		particles.NewFloat64("x[0]", x0), particles.NewFloat32("x[1]", x1),
@@ -83,7 +90,8 @@ func TestFileSmall(t *testing.T) {
 	fakeHd, _ := fakeFile.ReadHeader()
 
 	var err error
-	wr := NewWriter("test_files/small_test.gup", fakeHd, buf, b, order)
+	wr := NewWriter("test_files/small_test.gup", fakeHd,
+		idOffset, buf, b, order)
 	for i := range fields {
 		err = wr.AddField(fields[i], methods[i])
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
@@ -109,8 +117,6 @@ func TestFileSmall(t *testing.T) {
  	}
 
 	for i := range names {
-		if names[i] == "id" { continue }
-
 		f, err := rd.ReadField(names[i])
 		if err != nil {
 			t.Errorf("Error in ReadField('%s'): %s", names[i], err.Error())
@@ -146,6 +152,11 @@ func TestFileSmall(t *testing.T) {
 				t.Errorf("Expected '%s' to be %v, got %v.",
 					f.Name(), f.Data(), fields[i].Data())
 			}
+		case 4:
+			if !eq.Generic(f.Data(), id) {
+				t.Errorf("Expected '%s' to be %v, got %v.",
+					f.Name(), id, f.Data())
+			}
 		}
 	}
 
@@ -174,7 +185,7 @@ func TestFileLarge(t *testing.T) {
 	snapHd, err := f.ReadHeader()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	wr := NewWriter("test_files/large_test.gup", snapHd, buf, b, order)
+	wr := NewWriter("test_files/large_test.gup", snapHd, 0, buf, b, order)
 	xMethod := NewLagrangianDelta(span, xDelta)
 	vMethod := NewLagrangianDelta(span, vDelta)
 

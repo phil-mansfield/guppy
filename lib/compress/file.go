@@ -45,12 +45,12 @@ type Writer struct {
 // don't want to make excess heap allocaitons, pass the same array returned by
 // Flush(). You can pass the same compress.Buffer each time.
 func NewWriter(
-	fname string, snapioHeader snapio.Header,
+	fname string, snapioHeader snapio.Header, idOffset uint64,
 	buf *Buffer, b []byte, order binary.ByteOrder,
 ) (*Writer) {
 	header := bytes.NewBuffer([]byte{ })
 	data := bytes.NewBuffer(b[:0]) 
-	hd := convertSnapioHeader(snapioHeader)
+	hd := convertSnapioHeader(snapioHeader, idOffset)
 	return &Writer{
 		*hd, fname, buf, order, []uint32{},
 		[]int64{0}, []int64{0},
@@ -150,6 +150,7 @@ type FixedWidthHeader struct {
 	// N and Ntot give the number of particles in the file and in the
 	// total simulation, respectively.
 	N, Ntot int64
+	IDOffset uint64
 	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
 	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
 	// mass in Msun/h.
@@ -167,9 +168,9 @@ type Header struct {
 	Names, Types []string
 }
 
-func convertSnapioHeader(snapioHeader snapio.Header) *Header {
+func convertSnapioHeader(snapioHeader snapio.Header, idOffset uint64) *Header {
 	return &Header{
-		FixedWidthHeader{0, snapioHeader.NTot(),
+		FixedWidthHeader{0, snapioHeader.NTot(), idOffset,
 			snapioHeader.Z(), snapioHeader.OmegaM(), snapioHeader.H100(),
 			snapioHeader.L(), snapioHeader.Mass()},
 		snapioHeader.ToBytes(), []string{}, []string{},
@@ -304,6 +305,8 @@ func NewReader(
 // want to call ReadField again, YOU WILL NEED TO COPY THE DATA OUT OF THE FIELD
 // and into your own locally-allocated array or you could lose it.
 func (rd *Reader) ReadField(name string) (particles.Field, error) {
+	if name == "id" { return rd.readID() }
+
 	i := findString(rd.Names, name)
 	if i == -1 { 
 		return nil, fmt.Errorf("The field '%s' is not in the compressed " +
@@ -336,6 +339,16 @@ func (rd *Reader) ReadField(name string) (particles.Field, error) {
 
 	midBuf := bytes.NewBuffer(rd.midBuf)
 	return method.Decompress(rd.buf, midBuf, name)
+}
+
+func (rd *Reader) readID() (particles.Field, error) {
+	rd.buf.Resize(int(rd.N))
+	ids := rd.buf.u64
+	for i := range ids {
+		ids[i] = uint64(i) + rd.IDOffset
+	}
+
+	return particles.NewUint64("id", ids), nil
 }
 
 // Close closes the files associated with the Reader.
