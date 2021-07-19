@@ -3,7 +3,10 @@ package main
 import (
 	"fmt"
 	"encoding/binary"
+	"log"
+	"os"
 	"strings"
+	"strconv"
 	
 	"github.com/phil-mansfield/guppy/lib/compress"
 	"github.com/phil-mansfield/guppy/lib/particles"
@@ -11,56 +14,54 @@ import (
 )
 
 const (
-	SnapMin = 100
-	SnapMax = 100
-	XDelta = 2.4e-3
-	VDelta = 1.0
+	SnapMin = 0
+	SnapMax = 99
 	
-	L = 125
-	SimName = "Erebos_CBol_L125"
+	L = 62.5
+	SimName = "Erebos_CBol_L63"
+	SkipMod = -1
 )
 
 var (
+	XDelta = 2.5e-3
+	VDelta = 2.5
+	AccString = "2.5"
+
 	Span = [3]int{ 128, 128, 128 }
-	FileMin = [3]int{ 0, 0, 0 }
-	FileMax = [3]int{ 0, 0, 2 }
+	FileMin = [3]int{ 5, 6, 0 }
+	FileMax = [3]int{ 6, 7, 1 }
 	GadgetTypes = []string{"v32", "v32", "u32"}
 	GadgetNames = []string{"x", "v", "id"}
 	Order = binary.LittleEndian
 )
 
 func InName(snap, fx, fy, fz int) string {
-	switch fz {
-	case 0: fx, fy, fz = 0, 0, 0
-	case 1: fx, fy, fz = 3, 3, 3
-	case 2: fx, fy, fz = 1, 2, 5
-	}
-	return fmt.Sprintf("/home/phil/code/src/github.com/phil-mansfield/" + 
-		"guppy/large_test_data/L125_sheet%d%d%d_snap_%03d.gadget2.dat",
-		fx, fy, fz, snap)
+    return fmt.Sprintf("/data/mansfield/simulations/%s/" +
+        "particles/gadget_cube/snapdir_%03d/sheet%d%d%d.dat",
+        SimName, snap, fx, fy, fz)
 }
 
 func OutFormat(snap, fx, fy, fz int) string {
-	switch fz {
-	case 0: fx, fy, fz = 0, 0, 0
-	case 1: fx, fy, fz = 3, 3, 3
-	case 2: fx, fy, fz = 1, 2, 5
-	}
-	return fmt.Sprintf("/home/phil/code/src/github.com/phil-mansfield/" + 
-		"guppy/lib/compress/test_files/%s_%d%d%d_snap%03d.%%s.gup",
-		SimName, fx, fy, fz, snap)
+    return fmt.Sprintf("/data/mansfield/simulations/%s/" +
+        "particles/guppy/d%%s_%s/snapdir_%03d/sheet%d%d%d.gup",
+        SimName, AccString, snap, fx, fy, fz)
 }
 
 func Names() (in, outFmt []string) {
 	for snap := SnapMin; snap <= SnapMax; snap++ {
 		// Deals with a corrupted snapshot in the main test box.
-		if strings.Contains(InName(snap, 0, 0, 0), "Erebos_CBol_L63") {
+		if strings.Contains(InName(snap, 0, 0, 0), "Erebos_CBol_L63") && 
+			snap == 63 {
 			continue
 		}
 		
+		if SkipMod > 0 && snap % SkipMod != 0 {
+			continue
+		}
+
 		for fz := FileMin[2]; fz <= FileMax[2]; fz++ {
-			for fy := FileMin[1]; fy <= FileMin[1]; fy++ {
-				for fx := FileMin[0]; fx <= FileMin[0]; fx++{
+			for fy := FileMin[1]; fy <= FileMax[1]; fy++ {
+				for fx := FileMin[0]; fx <= FileMax[0]; fx++{
 					in = append(in, InName(snap, fx, fy, fz))
 					outFmt = append(outFmt, OutFormat(snap, fx, fy, fz))
 				}
@@ -159,6 +160,7 @@ func Convert(
 		if varName == "id" { continue }
 		
 		outName := fmt.Sprintf(outFormat, varName)
+		
 		output.Writer = compress.NewWriter(
 			outName, output.Buffer, output.B, Order,
 		)
@@ -211,7 +213,8 @@ func PrintBounds(formats []string, low, span [][3]float32) {
 	
 	for i := range formats {
 		tok := strings.Split(formats[i], "/")
-		name := fmt.Sprintf(tok[len(tok) - 1], "x")
+		//name := fmt.Sprintf(tok[len(tok) - 1], "x")
+		name := tok[len(tok) - 1]
 
 		fmt.Printf("%s %9.4f %9.4f %9.4f %9.4f %9.4f %9.4f\n",
 			name, low[i][0], low[i][1], low[i][2],
@@ -219,7 +222,19 @@ func PrintBounds(formats []string, low, span [][3]float32) {
 	}
 }
 
+func ParseArgs() {
+	if len(os.Args) == 1 { return }
+	AccString = os.Args[1]
+	var err error 
+	VDelta, err = strconv.ParseFloat(AccString, 64)
+	if err != nil { panic(err.Error()) }
+	XDelta = VDelta * 1e-3
+}
+
 func main() {
+	ParseArgs()
+	log.Println(AccString)
+
 	inNames, outFormats := Names()
 
 	input := InputBuffers(inNames[0])
@@ -231,5 +246,5 @@ func main() {
 		low[i], span[i] = Convert(inNames[i], outFormats[i], input, output)
 	}
 	
-	PrintBounds(outFormats, low, span)
+	//PrintBounds(outFormats, low, span)
 }
