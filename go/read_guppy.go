@@ -15,19 +15,23 @@ var (
 
 // Header contains header information about a given .gup file.
 type Header struct {
-	// OriginalHeader is the original header of the one of the simulation 
+	// OriginalHeader is the original header of the one of the original
+	// simulation files.
 	OriginalHeader []byte
 	// Names gives the names of all the variables stored in the file.
 	// Types give the types of these variables. "u32"/"u64" give 32-bit and
-	// 64-bit unsigned integers, respectively, anf "f32"/"f64" give 32-bit
+	// 64-bit unsigned integers, respectively, and "f32"/"f64" give 32-bit
 	// and 64-bit floats, respectively.
 	Names, Types []string
-	// N and Ntot give the number of particles in the file and in the
+	// N and NTot give the number of particles in the file and in the
 	// total simulation, respectively.
-	N, Ntot int
+	N, NTot int64
+	// Span gives the dimensions of the slab of particles in the file.
+	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
+	Span [3]int64
 	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
 	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
-	// mass in Msun/h.
+	// mass in Msun/h, respectively.
 	Z, OmegaM, H100, L, Mass float64
 
 }
@@ -69,8 +73,21 @@ func finishWorker(workerID int) {
 
 // ReadHeader returns the header of a given file.
 func ReadHeader(fileName string) *Header {
-	panic("Current version of Guppy files doesn't contain Header information.")
-	return &Header{ }
+	worker := getWorker(-1)
+	rd, err := compress.NewReader(fileName, worker.buf, worker.midBuf)
+	if err != nil {
+		panic(fmt.Sprintf("Guppy encountered an error while opening and " + 
+			"initializing the file: %s", err.Error()))
+	}
+	defer rd.Close()
+
+	rhd := &rd.Header
+	return &Header{
+		rhd.OriginalHeader,
+		rhd.Names, rhd.Types,
+		rhd.N, rhd.NTot, rhd.Span,
+		rhd.Z, rhd.OmegaM, rhd.H100, rhd.L, rhd.Mass,
+	}
 }
 
 // ReadVar reads a variable with a given name from a givne file. If you
