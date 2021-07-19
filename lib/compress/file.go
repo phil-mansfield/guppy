@@ -45,12 +45,14 @@ type Writer struct {
 // don't want to make excess heap allocaitons, pass the same array returned by
 // Flush(). You can pass the same compress.Buffer each time.
 func NewWriter(
-	fname string, snapioHeader snapio.Header, idOffset uint64,
+	fname string, snapioHeader snapio.Header,
+	idOffset uint64, span [3]int64,
 	buf *Buffer, b []byte, order binary.ByteOrder,
-) (*Writer) {
+) *Writer {
 	header := bytes.NewBuffer([]byte{ })
 	data := bytes.NewBuffer(b[:0]) 
-	hd := convertSnapioHeader(snapioHeader, idOffset)
+	hd := convertSnapioHeader(snapioHeader, span, idOffset)
+
 	return &Writer{
 		*hd, fname, buf, order, []uint32{},
 		[]int64{0}, []int64{0},
@@ -58,10 +60,15 @@ func NewWriter(
 	}
 }
 
+
 // Add field adds a new field to the file which will be compressed with
 // a given method.
 func (wr *Writer) AddField(field particles.Field, method Method) error {
-	wr.N = int64(field.Len())
+	if int64(field.Len()) != wr.N {
+		return fmt.Errorf("File stores %d particles, but was given a new " + 
+			"field, %s, with %d particles.", wr.N, field.Name(), field.Len())
+	}
+
 	method.SetOrder(wr.order)
 
 	err := method.WriteInfo(wr.header)
@@ -150,6 +157,10 @@ type FixedWidthHeader struct {
 	// N and Ntot give the number of particles in the file and in the
 	// total simulation, respectively.
 	N, Ntot int64
+	// Span gives the dimensions of the slab of particles in the file.
+	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
+	Span [3]int64
+	// IDOffset is the ID of the first particle in the file.
 	IDOffset uint64
 	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
 	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
@@ -168,9 +179,12 @@ type Header struct {
 	Names, Types []string
 }
 
-func convertSnapioHeader(snapioHeader snapio.Header, idOffset uint64) *Header {
+func convertSnapioHeader(
+	snapioHeader snapio.Header, span [3]int64, idOffset uint64,
+) *Header {
+	n := span[0]*span[1]*span[2]
 	return &Header{
-		FixedWidthHeader{0, snapioHeader.NTot(), idOffset,
+		FixedWidthHeader{n, snapioHeader.NTot(), span, idOffset,
 			snapioHeader.Z(), snapioHeader.OmegaM(), snapioHeader.H100(),
 			snapioHeader.L(), snapioHeader.Mass()},
 		snapioHeader.ToBytes(), []string{}, []string{},
