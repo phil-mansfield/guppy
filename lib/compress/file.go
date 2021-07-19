@@ -5,8 +5,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"os"
+	"io"
 
 	"github.com/phil-mansfield/guppy/lib/particles"
+	"github.com/phil-mansfield/guppy/lib/snapio"
+
+	"unsafe"
 )
 
 const (
@@ -25,10 +29,10 @@ const (
 // to finally call Flush() when you want to flush all the buffers and write to
 // disk.
 type Writer struct {
+	Header
 	fname string
 	buf *Buffer
 	order binary.ByteOrder
-	names []string
 	methodFlags []uint32
 	headerEdges, dataEdges []int64
 	header, data *bytes.Buffer
@@ -41,21 +45,30 @@ type Writer struct {
 // don't want to make excess heap allocaitons, pass the same array returned by
 // Flush(). You can pass the same compress.Buffer each time.
 func NewWriter(
-	fname string, buf *Buffer, b []byte, order binary.ByteOrder,
-) (*Writer) {
+	fname string, snapioHeader snapio.Header,
+	idOffset uint64, span [3]int64,
+	buf *Buffer, b []byte, order binary.ByteOrder,
+) *Writer {
 	header := bytes.NewBuffer([]byte{ })
 	data := bytes.NewBuffer(b[:0]) 
+	hd := convertSnapioHeader(snapioHeader, span, idOffset)
+
 	return &Writer{
-		fname, buf, order,
-		[]string{}, []uint32{},
+		*hd, fname, buf, order, []uint32{},
 		[]int64{0}, []int64{0},
 		header, data,
 	}
 }
 
+
 // Add field adds a new field to the file which will be compressed with
 // a given method.
 func (wr *Writer) AddField(field particles.Field, method Method) error {
+	if int64(field.Len()) != wr.N {
+		return fmt.Errorf("File stores %d particles, but was given a new " + 
+			"field, %s, with %d particles.", wr.N, field.Name(), field.Len())
+	}
+
 	method.SetOrder(wr.order)
 
 	err := method.WriteInfo(wr.header)
@@ -67,7 +80,18 @@ func (wr *Writer) AddField(field particles.Field, method Method) error {
 	wr.headerEdges = append(wr.headerEdges, int64(wr.header.Len()))
 	wr.dataEdges = append(wr.dataEdges, int64(wr.data.Len()))
 	wr.methodFlags = append(wr.methodFlags, uint32(method.MethodFlag()))
-	wr.names = append(wr.names, field.Name())
+
+	wr.Names = append(wr.Names, field.Name())
+	switch field.Data().(type) {
+	case []uint32: wr.Types = append(wr.Types, "u32")
+	case []uint64: wr.Types = append(wr.Types, "u64")
+	case []float32: wr.Types = append(wr.Types, "f32")
+	case []float64: wr.Types = append(wr.Types, "f64")
+	default:
+		panic(fmt.Sprintf("Internal error: unknown-typed " + 
+			"paritcles.Field (name: '%s') given " + 
+			"to Writer.AddField()", field.Name()))
+	}
 
 	return nil
 }
@@ -93,25 +117,9 @@ func (wr *Writer) Flush() ([]byte, error) {
 	if err != nil { return nil, err }
 	nHd += 4
 
-	// Write field names (needed for navigation).
-	nFields := uint32(len(wr.dataEdges) - 1)
-
-	err = binary.Write(fp, wr.order, nFields)
+	n, err := wr.Header.write(fp, wr.order)
 	if err != nil { return nil, err }
-	nHd += 4
-
-	nNames := make([]uint32, len(wr.names))
-	for i := range nNames { nNames[i] = uint32(len(wr.names[i])) }
-
-	err = binary.Write(fp, wr.order, nNames)
-	if err != nil { return nil, err }
-	nHd += 4*len(nNames)
-
-	for i := range wr.names {
-		n, err := fp.Write([]byte(wr.names[i]))
-		if err != nil { return nil, err }
-		nHd += n
-	}
+	nHd += n
 
 	// Write the actual navigation information.
 	nHd += 4*len(wr.methodFlags) // methodFalgs size
@@ -145,14 +153,122 @@ func (wr *Writer) Flush() ([]byte, error) {
 	return bData, nil
 }
 
+type FixedWidthHeader struct {
+	// N and Ntot give the number of particles in the file and in the
+	// total simulation, respectively.
+	N, Ntot int64
+	// Span gives the dimensions of the slab of particles in the file.
+	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
+	Span [3]int64
+	// IDOffset is the ID of the first particle in the file.
+	IDOffset uint64
+	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
+	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
+	// mass in Msun/h.
+	Z, OmegaM, H100, L, Mass float64
+}
+
+type Header struct {
+	FixedWidthHeader
+	// OriginalHeader is the original header of the one of the simulation 
+	OriginalHeader []byte
+	// Names gives the names of all the variables stored in the file.
+	// Types give the types of these variables. "u32"/"u64" give 32-bit and
+	// 64-bit unisghned integers, respectively, anf "f32"/"f64" give 32-bit
+	// and 64-bit floats, respectively.
+	Names, Types []string
+}
+
+func convertSnapioHeader(
+	snapioHeader snapio.Header, span [3]int64, idOffset uint64,
+) *Header {
+	n := span[0]*span[1]*span[2]
+	return &Header{
+		FixedWidthHeader{n, snapioHeader.NTot(), span, idOffset,
+			snapioHeader.Z(), snapioHeader.OmegaM(), snapioHeader.H100(),
+			snapioHeader.L(), snapioHeader.Mass()},
+		snapioHeader.ToBytes(), []string{}, []string{},
+	}	
+}
+
+func (hd *Header) read(f io.Reader, order binary.ByteOrder) error {
+	err := binary.Read(f, order, &hd.FixedWidthHeader)
+	if err != nil { return err }
+
+	var nOHeader uint32
+	if err := binary.Read(f, order, &nOHeader); err != nil { return err }
+	hd.OriginalHeader = make([]byte, nOHeader)
+
+	if _, err := f.Read(hd.OriginalHeader); err != nil { return err }
+
+	var nFields uint32
+	if err := binary.Read(f, order, &nFields); err != nil { return err }
+	hd.Names, hd.Types = make([]string, nFields+1), make([]string, nFields+1)
+
+	nNames := make([]uint32, nFields)
+	if err := binary.Read(f, order, nNames); err != nil { return err }
+
+	for i := 0; i < len(nNames); i++ {
+		b := make([]byte, nNames[i])
+		if _, err = f.Read(b); err != nil { return err }
+		hd.Names[i] = string(b)
+	}
+
+	for i := 0; i < len(nNames); i++ {
+		b := make([]byte, 3)
+		if _, err = f.Read(b); err != nil { return err }
+		hd.Types[i] = string(b)
+	}
+
+	hd.Names[nFields], hd.Types[nFields] = "id", "u64"
+	return nil
+}
+
+func (hd *Header) write(f io.Writer, order binary.ByteOrder) (int, error) {
+	n := 0
+	err := binary.Write(f, order, &hd.FixedWidthHeader)
+	if err != nil { return 0, err }
+	n += int(unsafe.Sizeof(hd.FixedWidthHeader))
+
+	nOHeader := uint32(len(hd.OriginalHeader))
+	if err := binary.Write(f, order, nOHeader); err != nil { return 0, err }
+	n += 4
+
+	if _, err := f.Write(hd.OriginalHeader); err != nil { return 0, err }
+	n += int(nOHeader)
+
+	nFields := uint32(len(hd.Names))
+	if err := binary.Write(f, order, &nFields); err != nil { return 0, err }
+	n += 4
+
+	nNames := make([]uint32, nFields)
+	for i := range nNames { nNames[i] = uint32(len(hd.Names[i])) }
+	if err := binary.Write(f, order, nNames); err != nil { return 0, err }
+	n += len(nNames)*4
+
+	for i := range hd.Names {
+		b := []byte(hd.Names[i])
+		if _, err = f.Write(b); err != nil { return 0, err }
+		n += len(b)
+	}
+
+	for i := range hd.Types {
+		b := []byte(hd.Types[i])
+		if _, err = f.Write(b); err != nil { return 0, err }
+		n += 3
+	}
+
+	return n, nil
+}
+
 // Reader handles the I/O and navigation asosociated with reading compressed
 // fields from disk. Unlike Writer, it will need to be closed after use.
 type Reader struct {
+	Header
 	fname string
 	f *os.File
 	order binary.ByteOrder
 	headerEdges, dataEdges []int64
-	names []string
 	methodFlags []MethodFlag
 	buf *Buffer
 
@@ -173,39 +289,28 @@ func NewReader(
 	order, err := checkFile(fname, f)
 	if err != nil { return nil, err }
 
-	var nFields uint32
-	err = binary.Read(f, order, &nFields)
+	hd := &Header{ }
+	if err := hd.read(f, order); err != nil { return nil, err }
+	nFields := len(hd.Names) - 1
 
 	rd := &Reader{
-		fname, f, order, make([]int64, nFields+1), make([]int64, nFields+1),
-		make([]string, nFields), make([]MethodFlag, nFields), buf, midBuf,
-	}
-	nNames := make([]uint32, nFields)
-
-	// Read in the field names
-	err = binary.Read(f, order, nNames)
-	if err != nil { return nil, err}
-
-	for i := range rd.names {
-		b := make([]byte, nNames[i])
-		_, err = f.Read(b)
-		if err != nil { return nil, err }
-		rd.names[i] = string(b)
+		*hd, fname, f, order, make([]int64, nFields+1),
+		make([]int64, nFields+1), make([]MethodFlag, nFields), buf, midBuf,
 	}
 
 	// Read in navigation information
-	err = binary.Read(f, order, rd.methodFlags)
-	if err != nil { return nil, err }
-	err = binary.Read(f, order, rd.headerEdges)
-	if err != nil { return nil, err }
-	err = binary.Read(f, order, rd.dataEdges)
-	if err != nil { return nil, err }
-
+	if err := binary.Read(f, order, rd.methodFlags); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(f, order, rd.headerEdges); err != nil {
+		return nil, err
+	}
+	if err := binary.Read(f, order, rd.dataEdges); err != nil {
+		return nil, err
+	}
+	
 	return rd, err
 }
-
-// Names returns the names of all the variables in the file.
-func (rd *Reader) Names() []string { return rd.names }
 
 // ReadField reads a field from the reader using the given method. (Note: use
 // Names() to find these.)
@@ -214,11 +319,13 @@ func (rd *Reader) Names() []string { return rd.names }
 // want to call ReadField again, YOU WILL NEED TO COPY THE DATA OUT OF THE FIELD
 // and into your own locally-allocated array or you could lose it.
 func (rd *Reader) ReadField(name string) (particles.Field, error) {
-	i := findString(rd.names, name)
+	if name == "id" { return rd.readID() }
+
+	i := findString(rd.Names, name)
 	if i == -1 { 
 		return nil, fmt.Errorf("The field '%s' is not in the compressed " +
 			"file %s. It conly contains the fields %s.",
-			name, rd.fname, rd.names)
+			name, rd.fname, rd.Names)
 	}
 
 	headerOffset, dataOffset := rd.headerEdges[i], rd.dataEdges[i]
@@ -248,6 +355,16 @@ func (rd *Reader) ReadField(name string) (particles.Field, error) {
 	return method.Decompress(rd.buf, midBuf, name)
 }
 
+func (rd *Reader) readID() (particles.Field, error) {
+	rd.buf.Resize(int(rd.N))
+	ids := rd.buf.u64
+	for i := range ids {
+		ids[i] = uint64(i) + rd.IDOffset
+	}
+
+	return particles.NewUint64("id", ids), nil
+}
+
 // Close closes the files associated with the Reader.
 func (rd *Reader) Close() {
 	rd.f.Close()
@@ -265,7 +382,10 @@ func selectMethod(flag MethodFlag) Method {
 	default:
 		panic(fmt.Sprintf("The method flag %d isn't recognized by " + 
 			"Reader.ReadField. This is almost certianly an internal error, " + 
-			"where part of the .", flag))
+			"where there's some sort of file offset that's being read " + 
+			"incorrectly. It could also be that your local version of Guppy " + 
+			"is older than the version that made this file and there's a bug " + 
+			"in Guppy's code that checks for this.", flag))
 	}
 }
 

@@ -5,26 +5,66 @@ import (
 	"encoding/binary"
 	"testing"
 	"fmt"
+	"bytes"
 
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
 	"github.com/phil-mansfield/guppy/lib/snapio"
 )
 
+func TestHeader(t *testing.T) {
+	buf := bytes.NewBuffer([]byte{})
+	hd1 := &Header{
+		FixedWidthHeader{1<<8, 1<<30, [3]int64{8, 8, 8}, 15,
+			0.5, 0.27, 0.70, 100.0, 3e9},
+		[]byte{5, 4, 3, 2, 1, 0}, []string{"a", "bb", "ccc", "", "eeeee"},
+		[]string{"u32", "u32", "f32", "f64", "u64"},
+	}
+	hd2 := *hd1
+
+	hd2.write(buf, binary.LittleEndian)
+
+	hd3 := &Header{ }
+	hd3.read(buf, binary.LittleEndian)
+
+	hd1.Names = append(hd1.Names, "id")
+	hd1.Types = append(hd1.Types, "u64")
+
+	if hd3.FixedWidthHeader != hd1.FixedWidthHeader {
+		t.Errorf("Written fixed-width header = %v, but read header = %v.",
+			hd1, hd3)
+	} else if !eq.Bytes(hd1.OriginalHeader, hd3.OriginalHeader) {
+		t.Errorf("Written original header = %d, but read original header = %d.",
+			hd1.OriginalHeader, hd3.OriginalHeader)
+	} else if !eq.Strings(hd1.Names, hd3.Names) {
+		t.Errorf("Written names = %s, but read names = %s.",
+			hd1.Names, hd3.Names)
+	} else if !eq.Strings(hd1.Types, hd3.Types) {
+		t.Errorf("Written types = %s, bute read types = %s.",
+			hd1.Types, hd3.Types)
+	}
+}
+
 func TestFileSmall(t *testing.T) {
-	span0 := [3]int{ 3, 4, 5 }
-	x0 := make([]float64, span0[0]*span0[1]*span0[2])
-	span1 := [3]int{ 4, 4, 4 }
-	x1 := make([]float32, span1[0]*span1[1]*span1[2])
-	span2 := [3]int{18, 8, 2}
-	x2 := make([]uint64, span2[0]*span2[1]*span2[2])
-	span3 := [3]int{8, 8, 1}
-	x3 := make([]uint32, span3[0]*span3[1]*span3[2])
+	// I ended up deciding that I really don't like this functionality,
+	// so I stop it at the user level (i.e. putting different sized blocks
+	// of variables in the same file). But the backend still supports it.
+	span := [3]int{ 3, 4, 5 }
+	span64 := [3]int64{3, 4, 5}
+	n := span[0]*span[1]*span[2]
+	x0 := make([]float64, n)
+	x1 := make([]float32, n)
+	x2 := make([]uint64, n)
+	x3 := make([]uint32, n)
+	id := make([]uint64, n)
 
 	for i := range x0 { x0[i] = rand.Float64() - 0.5 }
 	for i := range x1 { x1[i] = float32(rand.Float64()) - 0.5 }
 	for i := range x2 { x2[i] = uint64(rand.Intn(100)) }
 	for i := range x3 { x3[i] = uint32(rand.Intn(100)) }
+
+	idOffset := uint64(15)
+	for i := range id { id[i] = uint64(i) + idOffset }
 
 	fields := []particles.Field{
 		particles.NewFloat64("x[0]", x0), particles.NewFloat32("x[1]", x1),
@@ -34,17 +74,24 @@ func TestFileSmall(t *testing.T) {
 	order := binary.LittleEndian
 
 	methods := []Method{
-		NewLagrangianDelta(span0, deltas[0]),
-		NewLagrangianDelta(span1, deltas[1]),
-		NewLagrangianDelta(span2, deltas[2]),
-		NewLagrangianDelta(span3, deltas[3]),
+		NewLagrangianDelta(span, deltas[0]),
+		NewLagrangianDelta(span, deltas[1]),
+		NewLagrangianDelta(span, deltas[2]),
+		NewLagrangianDelta(span, deltas[3]),
 	}
 
 	buf := NewBuffer(0)
 	b := []byte{ }
 
+	fakeFile, _ := snapio.NewFakeFile(
+		[]string{"x", "x3"},
+		[]interface{}{[]float32{}, []float64{}}, 1000, order,
+	)
+	fakeHd, _ := fakeFile.ReadHeader()
+
 	var err error
-	wr := NewWriter("test_files/small_test.gup", buf, b, order)
+	wr := NewWriter("test_files/small_test.gup", fakeHd,
+		idOffset, span64, buf, b, order)
 	for i := range fields {
 		err = wr.AddField(fields[i], methods[i])
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
@@ -59,9 +106,13 @@ func TestFileSmall(t *testing.T) {
 	rd, err := NewReader("test_files/small_test.gup", buf, []byte{ })
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
-	names := rd.Names()
-	expNames := []string{"x[0]", "x[1]", "x[2]", "x3"}
+	names, types := rd.Names, rd.Types
+	expNames := []string{"x[0]", "x[1]", "x[2]", "x3", "id"}
  	if !eq.Strings(names, expNames) {
+ 		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
+ 	}
+	expTypes := []string{"f64", "f32", "u64", "u32", "u64"}
+ 	if !eq.Strings(types, expTypes) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
  	}
 
@@ -101,6 +152,11 @@ func TestFileSmall(t *testing.T) {
 				t.Errorf("Expected '%s' to be %v, got %v.",
 					f.Name(), f.Data(), fields[i].Data())
 			}
+		case 4:
+			if !eq.Generic(f.Data(), id) {
+				t.Errorf("Expected '%s' to be %v, got %v.",
+					f.Name(), id, f.Data())
+			}
 		}
 	}
 
@@ -110,6 +166,7 @@ func TestFileSmall(t *testing.T) {
 func TestFileLarge(t *testing.T) {
 	// File information
 	span := [3]int{ 128, 128, 128 }
+	span64 := [3]int64{ 128, 128, 128 }
 	fileName := "../../large_test_data/L125_sheet125_snap_100.gadget2.dat"
 	types := []string{"v32", "v32", "u32"}
 	names := []string{"x", "v", "id"}
@@ -126,7 +183,11 @@ func TestFileLarge(t *testing.T) {
 	buf := NewBuffer(0)
 	b := []byte{ }
 
-	wr := NewWriter("test_files/large_test.gup", buf, b, order)
+	snapHd, err := f.ReadHeader()
+	if err != nil { t.Fatalf(err.Error()) }
+
+	wr := NewWriter("test_files/large_test.gup", snapHd,
+		0, span64, buf, b, order)
 	xMethod := NewLagrangianDelta(span, xDelta)
 	vMethod := NewLagrangianDelta(span, vDelta)
 
@@ -157,15 +218,16 @@ func TestFileLarge(t *testing.T) {
 	rd, err := NewReader("test_files/large_test.gup", buf, []byte{ })
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
-	names = rd.Names()
-	expNames := []string{"x[0]", "v[0]", "x[1]", "v[1]", "x[2]", "v[2]"}
+	names = rd.Names
+	expNames := []string{"x[0]", "v[0]", "x[1]", "v[1]", "x[2]", "v[2]", "id"}
 	dims := []int{ 0, 0, 1, 1, 2, 2 }
  	if !eq.Strings(names, expNames) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
  	}
 
  	for i := range names {
-
+ 		if names[i] == "id" { continue }
+ 
  		field, err := rd.ReadField(names[i])
  		if err != nil { t.Fatalf(err.Error()) }
 
