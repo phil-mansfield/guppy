@@ -156,7 +156,7 @@ func (wr *Writer) Flush() ([]byte, error) {
 type FixedWidthHeader struct {
 	// N and Ntot give the number of particles in the file and in the
 	// total simulation, respectively.
-	N, Ntot int64
+	N, NTot int64
 	// Span gives the dimensions of the slab of particles in the file.
 	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
 	Span [3]int64

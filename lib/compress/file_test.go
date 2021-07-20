@@ -186,7 +186,7 @@ func TestFileLarge(t *testing.T) {
 	snapHd, err := f.ReadHeader()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	wr := NewWriter("test_files/large_test.gup", snapHd,
+	wr := NewWriter("../../large_test_data/large_test.gup", snapHd,
 		0, span64, buf, b, order)
 	xMethod := NewLagrangianDelta(span, xDelta)
 	vMethod := NewLagrangianDelta(span, vDelta)
@@ -212,10 +212,10 @@ func TestFileLarge(t *testing.T) {
 		}
 	}
 
-	b, err= wr.Flush()
+	b, err = wr.Flush()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	rd, err := NewReader("test_files/large_test.gup", buf, []byte{ })
+	rd, err := NewReader("../../large_test_data/large_test.gup", buf, []byte{ })
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
 	names = rd.Names

@@ -135,10 +135,11 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 }
 
 func readVec32(
-	rd *compress.Reader, name string, buf [][3]float32,
+	rd *compress.Reader, nameBase string, buf [][3]float32,
 ) {
 	expTypeName := "f32"
 	for dim := 0; dim < 3; dim++ {
+		name := fmt.Sprintf("%s[%d]", nameBase, dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -170,10 +171,11 @@ func readVec32(
 }
 
 func readVec64(
-	rd *compress.Reader, name string, buf [][3]float64,
+	rd *compress.Reader, nameBase string, buf [][3]float64,
 ) {
 	expTypeName := "f64"
 	for dim := 0; dim < 3; dim++ {
+		name := fmt.Sprintf("%s[%d]", nameBase, dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -333,7 +335,7 @@ func checkName(hd *compress.Header, name string) string {
 		if hd.Names[i] == name { return hd.Types[i] }
 	}
 
-	panic(fmt.Sprintf("File does not contain any variable named '%d'. " + 
+	panic(fmt.Sprintf("File does not contain any variable named '%s'. " + 
 		"It only contains the variables %s.", name, hd.Names))
 }
 
