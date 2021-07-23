@@ -1,100 +1,75 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <inttypes.h>
-#include "read_guppy.h"
-#include "go_wrapper.h"
+#ifndef _READ_GUPPY_H
+#define _READ_GUPPY_H
 
-GuppyHeader *GuppyReadHeader(char *fileName) {
-	return  ReadHeader(fileName);
-}
+#include <stdint.h>
 
-void GuppyFreeHeader(GuppyHeader *hd) {
-	free(hd->OriginalHeader);
-	for (int i = 0; i < hd->NVars; i++) {
-		free(hd->Names[i]);
-		free(hd->Types[i]);
-	}
-	free(hd->Names);
-	free(hd->Types);
-}
+// Guppy
+typedef struct Guppy_Header {
+	// OriginalHeader is the original header of the one of the original
+	// simulation files. OriginalHeaderLength is the length of that header in
+	// bytes.
+	char *OriginalHeader;
+	int64_t OriginalHeaderLength;
+	// Names gives the names of all the variables stored in the file.
+	// Types give the types of these variables. "u32"/"u64" give 32-bit and
+	// 64-bit unsigned integers, respectively, and "f32"/"f64" give 32-bit
+	// and 64-bit floats, respectively. NVars is the number of variables
+	// stored in the file.
+	char **Names, **Types;
+	int64_t NVars;
+	// N and NTot give the number of particles in the file and in the
+	// total simulation, respectively.
+	int64_t N, NTot;
+	// Span gives the dimensions of the slab of particles in the file.
+	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
+	int64_t Span[3];
+	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
+	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
+	// mass in Msun/h, respectively.
+	double Z, OmegaM, H100, L, Mass;
+} Guppy_Header;
 
+// Guppy_RockstarParitcle has the same structure as the particles used 
+// internally by Rockstar. Arrays of Guppy_RockstarParticle can be used
+// so oOckstar doesn't need to make unneccessary heap allocations. 
+typedef struct Guppy_RockstarParticle {
+	uint64_t ID;
+	float X[3], V[3];
+} Guppy_RockstarParticle;
 
-void GuppyPrintHeader(GuppyHeader *hd) {
-	printf("OriginalHeader:\n");
-	printf("Names:\n");
-	printf("    [");
-	for (int64_t i = 0; i < hd->NVars; i++) {
-		printf("'%s', ", hd->Names[i]);
-	}
-	printf("'%s']\n", hd->Types[hd->NVars - 1]);
-	printf("Types:\n");
-	printf("    [");
-	for (int64_t i = 0; i < hd->NVars; i++) {
-		printf("'%s', ", hd->Types[i]);
-	}
-	printf("'%s']\n", hd->Types[hd->NVars - 1]);
-	printf("Span:\n    [%"PRId64", %"PRId64", %"PRId64"]\n",
-		hd->Span[0], hd->Span[1], hd->Span[2]);
-	printf("Z:\n    %.6f\n", hd->Z);
-	printf("OmegaM:\n    %.6f\n", hd->OmegaM);
-	printf("L:\n    %.6f\n", hd->L);
-	printf("H100:\n    %.6f\n", hd->H100);
-	printf("Mass:\n    %.6g\n", hd->Mass);
-}
+// Guppy_ReadHeader returns the header of a given file.
+Guppy_Header *Guppy_ReadHeader(char *fileName);
 
-void GuppyReadVar(char *fileName, char *varName, int workerID, void *out) {
-	ReadVar(fileName, varName, workerID, out);
-}
+// Guppy_FreeHeader frees the a Guppy_Header.
+void Guppy_FreeHeader(Guppy_Header *hd);
 
-void GuppyInitWorkers(int n) {
-	InitWorkers(n);
-}
+// Guppy_PrintHeader prints a Guppy_Header.
+void Guppy_PrintHeader(Guppy_Header *hd);
 
-void _PrintGuppyArrays(float (*x)[3], float (*v)[3], float *x0, uint64_t *id) {
-	printf("x:\n[\n");
-	for (int i = 0; i < 5; i++)
-		printf("     [%7.4f %7.4f %7.4f]\n", x[i][0], x[i][1], x[i][2]);
-	printf("]\n\n");
+// Guppy_ReadVar reads a variable with a given name from a givne file. If
+// you and to use one of the pre-allocated workers, you should give the
+// integer ID of that workers (i.e. in the range [0, n). ReadVar uses
+// mutexes to make sure that same worker isn't being used simultaneously,
+// so feel free to throw a zillion threads at the same worker.If you
+// don't care about heap space, just set workerID to -1. The last argument
+// is a buffer with length Header.N where the variable will be written to.
+//
+// For vector quantities, you can either load each component one by one
+// (e.g. "x[0]", "x[1]", etc.) and supply a []float32 or []float64 buffer,
+// or you can get the full vector (e.g. "x") and supply a [][3]float32 or
+// [][3]float64.
+//
+// The variable "id" is implicitly contained in every .gup file and can be
+// read into a []uint64 array.
+//
+// If the buffer has the name "[RockstarParticle]" and type
+// []Guppy_RockstarParticle, the fields "x[0]", "x[1]", "x[2]" will be read
+// into the X field, "v[0]", "v[1]", and "v[2]" into the V field and "id"
+// into the ID field.
+void Guppy_ReadVar(char *fileName, char *varName, int workerID, void *out);
 
-	printf("v:\n[\n");
-	for (int i = 0; i < 5; i++)
-		printf("     [%9.4f %9.4f %9.4f]\n", v[i][0], v[i][1], v[i][2]);
-	printf("]\n\n");
+// Guppy_InitWorkers allocates memory-managed space for n workers which can
+// be run simultaneously by different threads.
+void Guppy_InitWorkers(int n);
 
-	printf("x0:\n    [");
-	for (int i = 0; i < 5; i++)
-		printf("%7.4f ", x0[i]);
-	printf("]\n\n");
-
-	printf("id:\n    [");
-	for (int i = 0; i < 5; i++)
-		printf("%"PRIu64" ", id[i]);
-	printf("]\n");
-}
-
-int main() {
-	char *fileName = "../large_test_data/large_test.gup";
-	GuppyHeader *hd = GuppyReadHeader(fileName);
-	GuppyPrintHeader(hd);
-
-	GuppyInitWorkers(2);
-
-	float (*x)[3] = calloc(hd->N, sizeof(*x));
-	float (*v)[3] = calloc(hd->N, sizeof(*v));
-	float *x0 = calloc(hd->N, sizeof(*x0));
-	uint64_t *id = calloc(hd->N, sizeof(*id)); 
-
-	GuppyReadVar(fileName, "x", 0, x);
-	GuppyReadVar(fileName, "v", 1, v);
-	GuppyReadVar(fileName, "x[0]", 0, x0);
-	GuppyReadVar(fileName, "id", 1, id);
-
-	_PrintGuppyArrays(x, v, x0, id);
-
-	free(x);
-	free(v);
-	free(x0);
-	free(id);
-
-	GuppyFreeHeader(hd);
-}
+#endif // _READ_GUPPY_H

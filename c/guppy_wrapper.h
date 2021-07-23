@@ -19,7 +19,7 @@ typedef struct { const char *p; ptrdiff_t n; } _GoString_;
 /* Start of preamble from import "C" comments.  */
 
 
-#line 3 "go_wrapper.go"
+#line 3 "guppy_wrapper.go"
  #include "read_guppy.h"
 
 #line 1 "cgo-generated-wrapper"
@@ -73,7 +73,7 @@ extern "C" {
 #endif
 
 
-extern GuppyHeader* ReadHeader(char* p0);
+extern Guppy_Header* ReadHeader(char* p0);
 
 extern void ReadVar(char* p0, char* p1, int p2, void* p3);
 

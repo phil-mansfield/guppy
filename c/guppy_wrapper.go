@@ -12,7 +12,7 @@ import (
 const maxArraySize = 1<<14
 
 //export ReadHeader
-func ReadHeader(fileName *C.char) *C.GuppyHeader {
+func ReadHeader(fileName *C.char) *C.Guppy_Header {
 	// Turns out that allocating nested arrays in C memory from Go is a
 	// little complicated, ha ha...
 
@@ -22,8 +22,8 @@ func ReadHeader(fileName *C.char) *C.GuppyHeader {
 	var pointer *C.char
 	pointerSize := (C.ulong)(unsafe.Sizeof((*C.char)(pointer)))
 
-	headerSize := (C.ulong)(unsafe.Sizeof(C.GuppyHeader{ }))
-	cHd := (*C.GuppyHeader)(C.malloc(headerSize))
+	headerSize := (C.ulong)(unsafe.Sizeof(C.Guppy_Header{ }))
+	cHd := (*C.Guppy_Header)(C.malloc(headerSize))
 
 	// Handle the Names and Types parameters.
 	nVars := (C.ulong)(len(goHd.Names))

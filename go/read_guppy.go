@@ -36,6 +36,13 @@ type Header struct {
 
 }
 
+// RockstarParticle is a particle with the structure expected by the
+// Rockstar halo finder.
+type RockstarParticle struct {
+	ID uint64 
+	X, V [3]float32
+}
+
 // worker contains various buffers which prevent excess heap allocations
 // when reading the file.
 type worker struct {
@@ -105,6 +112,10 @@ func ReadHeader(fileName string) *Header {
 //
 // The variable "id" is implicitly contained in every .gup file and can be
 // read into a []uint64 array.
+//
+// If the buffer has the name "[RockstarParticle]" and type []RockstarParticle,
+// the fields "x[0]", "x[1]", "x[2]" will be read into the X field, "v[0]",
+// "v[1]", and "v[2]" into the V field and "id" into the ID field.
 func ReadVar(fileName, name string, workerID int, buf interface{}) {
 	// Allocated underlying buffers.
 	worker := getWorker(workerID)
@@ -124,14 +135,117 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 	case []float64: readFloat64(rd, name, x)
 	case []uint32: readUint32(rd, name, x)
 	case []uint64: readUint64(rd, name, x)
+	case []RockstarParticle: readRockstarParticle(rd, x)
 	default:
 		panic("The buffer passed to ReadVar is not [][3]float32, " + 
-			"[][3]float64, []float32, []float64, []uint32, or []uint64.")
+			"[][3]float64, []float32, []float64, []uint32, []uint64, or " +
+			"[]RockstarParticle.")
 	}
 
 	worker.midBuf = rd.ReuseMidBuf()
 
 	finishWorker(workerID)
+}
+
+func readRockstarParticle(
+	rd *compress.Reader, buf []RockstarParticle,
+) {
+	// Handle positions first.
+
+	expTypeName := "f32"
+	for dim := 0; dim < 3; dim++ {
+		name := fmt.Sprintf("x[%d]", dim)
+		typeName := checkName(&rd.Header, name)
+		if typeName != expTypeName {
+			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
+				"buffer is type '%s'. The file's Header struct contains " + 
+				"information on the types of fields.", name,
+				typeName, expTypeName))
+		}
+
+		field, err := rd.ReadField(name)
+		if err != nil {
+			panic(fmt.Sprintf("Guppy encountered error while reading the " + 
+				"field '%s': %s", name, err.Error()))
+		}
+		x, ok := field.Data().([]float32)
+		if !ok {
+			panic(fmt.Sprintf("Internal type error: Field '%s' has type " + 
+				"'%s', but this is not the type returned by ReadField().",
+				name, expTypeName))
+		}
+
+		if len(x) != len(buf) {
+			panic(fmt.Sprintf("Length of the buffer supplied for field " + 
+				"'%s' is %d, but the field has %d elements.", name,
+				len(buf), len(x)))
+		}
+
+		for i := range x { buf[i].X[dim] = x[i] }
+	}
+
+	// Next, do velocities
+
+	for dim := 0; dim < 3; dim++ {
+		name := fmt.Sprintf("v[%d]", dim)
+		typeName := checkName(&rd.Header, name)
+		if typeName != expTypeName {
+			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
+				"buffer is type '%s'. The file's Header struct contains " + 
+				"information on the types of fields.", name,
+				typeName, expTypeName))
+		}
+
+		field, err := rd.ReadField(name)
+		if err != nil {
+			panic(fmt.Sprintf("Guppy encountered error while reading the " + 
+				"field '%s': %s", name, err.Error()))
+		}
+		x, ok := field.Data().([]float32)
+		if !ok {
+			panic(fmt.Sprintf("Internal type error: Field '%s' has type " + 
+				"'%s', but this is not the type returned by ReadField().",
+				name, expTypeName))
+		}
+
+		if len(x) != len(buf) {
+			panic(fmt.Sprintf("Length of the buffer supplied for field " + 
+				"'%s' is %d, but the field has %d elements.", name,
+				len(buf), len(x)))
+		}
+
+		for i := range x { buf[i].V[dim] = x[i] }
+	}
+
+	// Lastly, IDs
+
+	expTypeName = "u64"
+	name := "id"
+	typeName := checkName(&rd.Header, name)
+	if typeName != expTypeName {
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
+			"is type '%s'. The file's Header struct contains information on " + 
+			"the types of fields.", name, typeName, expTypeName))
+	}
+
+	field, err := rd.ReadField(name)
+	if err != nil {
+		panic(fmt.Sprintf("Guppy encountered error while reading the field " + 
+			"'%s': %s", name, err.Error()))
+	}
+	x, ok := field.Data().([]uint64)
+	if !ok {
+		panic(fmt.Sprintf("Internal type error: Field '%s' has type '%s', " + 
+			"but this is not the type returned by ReadField().",
+			name, expTypeName))
+	}
+
+	if len(x) != len(buf) {
+		panic(fmt.Sprintf("Length of the buffer supplied for field '%s' " + 
+			"is %d, but the field has %d elements.", name, len(buf), len(x)))
+	}
+
+	for i := range x { buf[i].ID = x[i] }
 }
 
 func readVec32(
