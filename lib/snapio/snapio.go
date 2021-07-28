@@ -39,6 +39,8 @@ type Header interface {
 	Z() float64
 	// OmegaM returns Omega_m(z=0).
 	OmegaM() float64
+	// OmegaL returns Omega_Lambda(z=0)
+	OmegaL() float64
 	// H100 returns H0 / (100 km/s/Mpc).
 	H100() float64
 	// L returns the width of the simulation box in comoving Mpc/h.

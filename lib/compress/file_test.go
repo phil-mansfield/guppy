@@ -16,7 +16,7 @@ func TestHeader(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{})
 	hd1 := &Header{
 		FixedWidthHeader{1<<8, 1<<30, [3]int64{8, 8, 8}, 15,
-			0.5, 0.27, 0.70, 100.0, 3e9},
+			0.5, 0.27, 0.73, 0.70, 100.0, 3e9},
 		[]byte{5, 4, 3, 2, 1, 0}, []string{"a", "bb", "ccc", "", "eeeee"},
 		[]string{"u32", "u32", "f32", "f64", "u64"},
 	}

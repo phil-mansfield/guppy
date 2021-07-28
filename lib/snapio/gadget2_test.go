@@ -102,6 +102,11 @@ func TestReadGadget2Header(t *testing.T) {
 		t.Errorf("Expected hd.omegaM = %f, got %f.", omegaMExp, omegaM)
 	}
 
+	omegaLExp := 0.73
+	if omegaL := hd.OmegaL(); omegaL != omegaLExp {
+		t.Errorf("Expected hd.omegaL = %f, got %f.", omegaLExp, omegaL)
+	}
+
 	h100Exp := 0.7
 	if h100 := hd.H100(); h100 != h100Exp {
 		t.Errorf("Expected hd.h100 = %f, got %f.", h100Exp, h100)

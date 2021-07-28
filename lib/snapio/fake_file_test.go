@@ -51,6 +51,7 @@ func testFakeFileHeader(hd Header) error {
 	nTotExp := int64(20)
 	zExp := 1.0
 	omExp := 0.27
+	olExp := 0.73
 	h100Exp := 0.70
 	LExp := 100.0
 
@@ -75,6 +76,9 @@ func testFakeFileHeader(hd Header) error {
 	} else if hd.OmegaM() != omExp {
 		return fmt.Errorf("Expected FakeFileHeader.OmegaM() = %v, got %v.",
 			omExp, hd.OmegaM())
+	} else if hd.OmegaL() != olExp {
+		return fmt.Errorf("Expected FakeFileHeader.OmegaL() = %v, got %v.",
+			olExp, hd.OmegaL())
 	} else if hd.H100() != h100Exp {
 		return fmt.Errorf("Expected FakeFileHeader.H100() = %v, got %v.",
 			zExp, hd.H100())

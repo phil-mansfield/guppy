@@ -26,7 +26,7 @@ typedef struct Guppy_Header {
 	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
 	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
 	// mass in Msun/h, respectively.
-	double Z, OmegaM, H100, L, Mass;
+	double Z, OmegaM, OmegaL, H100, L, Mass;
 } Guppy_Header;
 
 // Guppy_RockstarParitcle has the same structure as the particles used 
@@ -46,13 +46,15 @@ void Guppy_FreeHeader(Guppy_Header *hd);
 // Guppy_PrintHeader prints a Guppy_Header.
 void Guppy_PrintHeader(Guppy_Header *hd);
 
-// Guppy_ReadVar reads a variable with a given name from a givne file. If
+// Guppy_ReadVar reads a variable with a given name from a given file. If
 // you and to use one of the pre-allocated workers, you should give the
 // integer ID of that workers (i.e. in the range [0, n). ReadVar uses
 // mutexes to make sure that same worker isn't being used simultaneously,
-// so feel free to throw a zillion threads at the same worker.If you
-// don't care about heap space, just set workerID to -1. The last argument
-// is a buffer with length Header.N where the variable will be written to.
+// so feel free to throw a zillion threads at the same worker. If you
+// don't care about heap space, just set workerID to -1. If you want guppy
+// to try to automatically allocate workers to the task, use workerID=-2. The
+// last argument is a buffer with length Header.N where the variable will be
+// written to.
 //
 // For vector quantities, you can either load each component one by one
 // (e.g. "x[0]", "x[1]", etc.) and supply a []float32 or []float64 buffer,

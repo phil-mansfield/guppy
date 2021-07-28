@@ -54,6 +54,7 @@ func ReadHeader(fileName *C.char) *C.Guppy_Header {
 	}
 	cHd.Z = (C.double)(goHd.Z)
 	cHd.OmegaM = (C.double)(goHd.OmegaM)
+	cHd.OmegaL = (C.double)(goHd.OmegaL)
 	cHd.H100 = (C.double)(goHd.H100)
 	cHd.L = (C.double)(goHd.L)
 	cHd.Mass = (C.double)(goHd.Mass)
@@ -73,6 +74,8 @@ func ReadVar(fileName, varName *C.char, workerID C.int, out unsafe.Pointer) {
 }
 
 func getTypeString(hd *read_guppy.Header, varName string) string {
+	if varName == "[RockstarParticle]" { return "rockstar" }
+
 	for i := range hd.Names {
 		if hd.Names[i] == varName {
 			return hd.Types[i]
@@ -127,6 +130,13 @@ func createBuffer(ptr unsafe.Pointer, n int, typeString string) interface{} {
 		hd := (*reflect.SliceHeader)(unsafe.Pointer(&slice))
 		hd.Data, hd.Len, hd.Cap = uintptr(ptr), n, n
 		buf = slice
+	case "rockstar":
+		slice := []read_guppy.RockstarParticle{ } 
+		hd := (*reflect.SliceHeader)(unsafe.Pointer(&slice))
+		hd.Data, hd.Len, hd.Cap = uintptr(ptr), n, n
+		buf = slice
+	default:
+		panic(fmt.Sprintf("Unrecognized type string: '%s'", typeString))
 	} 
 
 	return buf

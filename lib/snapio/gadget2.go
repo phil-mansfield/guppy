@@ -309,7 +309,7 @@ type Gadget2Header struct {
 	names, types []string
 	n int
 	nTot int64
-	z, omegaM, h100, l, mass float64
+	z, omegaM, omegaL, h100, l, mass float64
 }
 
 func (hd *Gadget2Header) ToBytes() []byte { return hd.rawBytes }
@@ -319,6 +319,7 @@ func (hd *Gadget2Header) Types() []string { return hd.types }
 func (hd *Gadget2Header) NTot() int64 { return hd.nTot }
 func (hd *Gadget2Header) Z() float64 { return hd.z }
 func (hd *Gadget2Header) OmegaM() float64 { return hd.omegaM }
+func (hd *Gadget2Header) OmegaL() float64 { return hd.omegaL }
 func (hd *Gadget2Header) H100() float64 { return hd.h100 }
 func (hd *Gadget2Header) L() float64 { return hd.l }
 func (hd *Gadget2Header) Mass() float64 { return hd.mass }
@@ -410,6 +411,7 @@ func (f *LGadget2) readHeader() (hd *Gadget2Header, err error) {
 		names: f.names, types: f.types,
 		n: n, nTot: nTot,
 		z: rawHd.Redshift, omegaM: rawHd.Omega0,
+		omegaL: rawHd.OmegaLambda,
 		h100: rawHd.HubbleParam, l: rawHd.BoxSize,
 		mass: rawHd.Mass[1] * 1e10, 
 	}
@@ -434,6 +436,7 @@ func (f *Gadget2Cosmological) readHeader() (hd *Gadget2Header, err error) {
 		names: f.names, types: f.types,
 		n: n, nTot: nTot,
 		z: rawHd.Redshift, omegaM: rawHd.Omega0,
+		omegaL: rawHd.OmegaLambda,
 		h100: rawHd.HubbleParam, l: rawHd.BoxSize,
 		mass: rawHd.Mass[1] * 1e10, 
 	}

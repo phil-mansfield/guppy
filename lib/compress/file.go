@@ -162,10 +162,10 @@ type FixedWidthHeader struct {
 	Span [3]int64
 	// IDOffset is the ID of the first particle in the file.
 	IDOffset uint64
-	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
-	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
-	// mass in Msun/h.
-	Z, OmegaM, H100, L, Mass float64
+	// Z, OmegaM, OmegaL, H100, L, and Mass give the redshift, Omega_m,
+	// Omega_Lambda, H0 / (100 km/s/Mpc), box width in comoving Mpc/h,
+	// and particle mass in Msun/h.
+	Z, OmegaM, OmegaL, H100, L, Mass float64
 }
 
 type Header struct {
@@ -185,7 +185,8 @@ func convertSnapioHeader(
 	n := span[0]*span[1]*span[2]
 	return &Header{
 		FixedWidthHeader{n, snapioHeader.NTot(), span, idOffset,
-			snapioHeader.Z(), snapioHeader.OmegaM(), snapioHeader.H100(),
+			snapioHeader.Z(), snapioHeader.OmegaM(),
+			snapioHeader.OmegaL(), snapioHeader.H100(),
 			snapioHeader.L(), snapioHeader.Mass()},
 		snapioHeader.ToBytes(), []string{}, []string{},
 	}	

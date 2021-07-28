@@ -8,7 +8,17 @@ import (
 	"sync"
 )
 
+// This state all needs to be global so we can cll these functions from
+// C while still telling Go's grbage collector to not collect the buffers.
+// Arguably, a better approach would be to allocate the buffers in C and pass
+// them to Guppy, but the buffers get so complicted that I didn't have the
+// fortitude for that...
 var (
+	setupMutex = &sync.Mutex{ }
+
+	readCounter = 0
+	readCounterMutex = &sync.Mutex{ }
+
 	workers []*worker
 	mutexes []*sync.Mutex
 )
@@ -32,7 +42,7 @@ type Header struct {
 	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
 	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
 	// mass in Msun/h, respectively.
-	Z, OmegaM, H100, L, Mass float64
+	Z, OmegaM, OmegaL, H100, L, Mass float64
 
 }
 
@@ -62,6 +72,13 @@ func newWorker() *worker {
 func getWorker(workerID int) *worker {
 	if workerID == - 1 {
 		return newWorker()
+	} else if workerID == -2 {
+		readCounterMutex.Lock()
+		currentCounter := readCounter
+		readCounter++
+		readCounterMutex.Unlock()
+
+		return getWorker(currentCounter % len(workers))
 	} else if workerID < -1 || workerID >= len(workers) {
 		panic(fmt.Sprintf("Cannot use worker %d for nWorkers = %d",
 			workerID, len(workers)))
@@ -93,7 +110,7 @@ func ReadHeader(fileName string) *Header {
 		rhd.OriginalHeader,
 		rhd.Names, rhd.Types,
 		rhd.N, rhd.NTot, rhd.Span,
-		rhd.Z, rhd.OmegaM, rhd.H100, rhd.L, rhd.Mass,
+		rhd.Z, rhd.OmegaM, rhd.OmegaL, rhd.H100, rhd.L, rhd.Mass,
 	}
 }
 
@@ -102,8 +119,10 @@ func ReadHeader(fileName string) *Header {
 // ID of that workers (i.e. in the range [0, nWorkers). ReadVar uses
 // mutexes to make sure that same worker isn't being used simultaneously,
 // so feel free to throw a zillion threads at the same worker. If you
-// don't care about heap space, just set workerID to -1. The last argument
-// is a buffer with length Header.N where the variable will be written to.
+// don't care about heap space, just set workerID to -1. If you want guppy
+// to try to automatically allocate workers to the task, use workerID=-2. The
+// last argument is a buffer with length Header.N where the variable will be
+// written to.
 //
 // For vector quantities, you can either load each component one by one
 // (e.g. "x[0]", "x[1]", etc.) and supply a []float32 or []float64 buffer,
@@ -454,8 +473,22 @@ func checkName(hd *compress.Header, name string) string {
 }
 
 // InitWorkers allocates space for nWorkers workers which can be run
-// simultaneously by different threads.
+// simultaneously by different threads. You can call it multiple times
+// with the same value of nWorkers if you aren't sure whether you're
+// the first worker to call it.
 func InitWorkers(nWorkers int) {
+	setupMutex.Lock()
+
+	if len(workers) != 0 {
+		if nWorkers == len(workers) {
+			return
+		} else if len(workers) != len(workers) {
+			panic(fmt.Sprintf("InitWorkers called with nWorkers = %d," +
+				"after earlier call with nWorkers = %d", nWorkers,
+				len(workers)))
+		}
+	}
+
 	workers = make([]*worker, nWorkers)
 	mutexes = make([]*sync.Mutex, nWorkers)
 
@@ -463,4 +496,6 @@ func InitWorkers(nWorkers int) {
 		workers[i] = newWorker()
 		mutexes[i] = &sync.Mutex{ }
 	}
+
+	setupMutex.Unlock()
 }

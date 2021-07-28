@@ -94,6 +94,7 @@ func (f *FakeFileHeader) Types() []string { return f.types }
 func (f *FakeFileHeader) NTot() int64 { return int64(f.nTot) }
 func (f *FakeFileHeader) Z() float64 { return 1.0 }
 func (f *FakeFileHeader) OmegaM() float64 { return 0.27 }
+func (f *FakeFileHeader) OmegaL() float64 { return 0.73 }
 func (f *FakeFileHeader) H100() float64 { return 0.70 }
 func (f *FakeFileHeader) L() float64 { return 100.0 }
 func (f *FakeFileHeader) Mass() float64 { return 1e10 }
