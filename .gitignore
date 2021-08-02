@@ -53,3 +53,7 @@ dkms.conf
 
 large_test_data/*
 *.gup
+c/read_guppy_test
+go/*.py
+go/*.txt
+go/profiles/
