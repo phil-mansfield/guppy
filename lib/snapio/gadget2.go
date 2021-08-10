@@ -194,11 +194,17 @@ func checkGadget2FileSize(fileName string, n int, types []string) error {
 	for i := range types {
 		size += 8 + blockSize(types[i], n)
 	}
-	if size != info.Size() {
+
+	//maxSizeDiff := int64(n*4)
+	//if size + maxSizeDiff < info.Size() || size - maxSizeDiff > info.Size() {
+	if size> info.Size() {
 		return fmt.Errorf("The provided Gadget-2 data types, %s, would lead " + 
 			"to the %d-particle file, %s, having %d bytes, but it actually " + 
 			"has %d bytes. You should check that the types are correct " + 
-			"(particularly the id size) and that no blocks are missing.", 
+			"(particularly the id size) and that no fields are missing or " + 
+			"incorrect. Gadget will often generate files with some junk " + 
+			"data in them, but the size difference in this case is way " + 
+			"too big.", 
 			types, n, fileName, size, info.Size(),
 		)
 	}
@@ -332,7 +338,7 @@ type rawLGadget2Header struct {
 	Time, Redshift float64
 	FlagSFR, FlagFeedback uint32
 	NPartTotal [6]uint32
-	rawFlagCooling, NumFiles uint32
+	RawFlagCooling, NumFiles uint32
 	BoxSize, Omega0, OmegaLambda, HubbleParam float64
 	FlagStellarAge, HashTabSize uint32
 	Empty [88]byte
@@ -349,7 +355,7 @@ type rawGadget2Header struct {
 	FlagCooling, NumFiles uint32
 	BoxSize, Omega0, OmegaLambda, HubbleParam float64
 	FlagStellarAge, FlagMetals uint32
-	NallHW[6] uint32
+	NallHW [6]uint32
 	FlagEntroypICs uint32
 	Empty [60]byte
 }

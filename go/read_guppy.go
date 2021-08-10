@@ -477,6 +477,7 @@ func checkName(hd *compress.Header, name string) string {
 // with the same value of nWorkers if you aren't sure whether you're
 // the first worker to call it.
 func InitWorkers(nWorkers int) {
+	fmt.Println("Starting InitWorkers")
 	setupMutex.Lock()
 
 	if len(workers) != 0 {
@@ -498,4 +499,5 @@ func InitWorkers(nWorkers int) {
 	}
 
 	setupMutex.Unlock()
+	fmt.Println("Ending InitWorkers")
 }

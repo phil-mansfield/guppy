@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path"
+	"log"
+	"strings"
 	"encoding/binary"
 	"github.com/phil-mansfield/guppy/lib/compress"
 	"github.com/phil-mansfield/guppy/lib/particles"
@@ -11,16 +14,19 @@ import (
 )
 
 var (
-	XDelta = 0.0025
-	VDelta = 2.5
+	XDelta = 0.005
+	VDelta = 5.0
 
-	SimPath = "Path/to/sim/particles"
-	GuppyPath = "Path/to/guppy/output/particles"
-	SnapshotFormat = "snapdir%04d"
+	SimPath = "/data/mansfield/simulations/Erebos_CBol_L63_N256/particles/raw"
+	GuppyPath = "/data/mansfield/simulations/Erebos_CBol_L63_N256/particles/guppy/dx5_dv5"
+	SnapshotFormat = "snapdir_%04d"
+	InputFileFormat = "snapshot_%04d.%d"
+	OutputFileFormat = "snapshot_%04d.%d.gup"
+
 	NFiles = 16
 	Np = 256
 	NBlocks = 2
-	Snaps = []int{191, 192}
+	Snaps = []int{189, 190}
 
 	GadgetVarNames = []string{"x", "v", "id"}
 	GadgetVarTypes = []string{"v32", "v32", "u64"} 
@@ -30,20 +36,23 @@ var (
 )
 
 func GadgetFileName(snap, i int) string {
-	fileFormat := "snapshot%04d.%d"
-	format := path.Join(SimPath, SnapshotFormat, fileFormat)
+	format := path.Join(SimPath, SnapshotFormat, InputFileFormat)
 	return fmt.Sprintf(format, snap, snap, i)
 }
 
 func GuppyFileName(snap, i int) string {
-	fileFormat := "snapshot%04d.%d.gup"
-	format := path.Join(GuppyPath, SnapshotFormat, fileFormat)
+	format := path.Join(GuppyPath, SnapshotFormat, OutputFileFormat)
 	return fmt.Sprintf(format, snap, snap, i)
+}
+
+func OutputDir(snap int) string {
+	format := path.Join(GuppyPath, SnapshotFormat)
+	return fmt.Sprintf(format, snap)
 }
 
 func GetGadgetArrays(
 	snap, i int, sioBuf *snapio.Buffer,
-) (x, v [][3]float32, id []int64) {
+) (x, v [][3]float32, id []uint64) {
 	fileName := GadgetFileName(snap, i)
 	reader, err := snapio.NewLGadget2(
 		fileName, GadgetVarNames, GadgetVarTypes, Order,
@@ -61,14 +70,14 @@ func GetGadgetArrays(
 	if err != nil { panic(err.Error()) }
 	vIntr, err := sioBuf.Get("v")
 	if err != nil { panic(err.Error()) }
-	idIntr, err := sioBuf.Get("io")
+	idIntr, err := sioBuf.Get("id")
 	if err != nil { panic(err.Error()) }
 
 	x, ok := xIntr.([][3]float32)
 	if !ok { panic("Type error on x") }
 	v, ok = vIntr.([][3]float32)
 	if !ok { panic("Type error on v") }
-	id, ok = idIntr.([]int64)
+	id, ok = idIntr.([]uint64)
 	if !ok { panic("Type error on id") }
 
 	return x, v, id
@@ -79,10 +88,10 @@ func LoadGadgetFile(
 ) {
 	x, v, id := GetGadgetArrays(snap, i, sioBuf)
 
-	Np64 := int64(Np)
+	Np64 := uint64(Np)
 
 	for i := range x {
-		ix := int(id[i] / Np64*Np64)
+		ix := int(id[i] / (Np64*Np64)) 
 		iy := int((id[i] / Np64) % Np64)
 		iz := int(id[i] % Np64)
 
@@ -167,11 +176,13 @@ func WriteToGuppy(
 	snap, i int, xGrid, vGrid [][3]float32,
 	origHd snapio.Header, output *Output,
 ) {
-	outName := GadgetFileName(snap, i)
+	outName := GuppyFileName(snap, i)
 
 	Nb := Np / NBlocks		
 	offsetID := uint64(Nb*Nb*Nb * i)
 	span := [3]int64{ int64(Nb), int64(Nb), int64(Nb) }
+
+	
 	output.Writer = compress.NewWriter(
 		outName, origHd, offsetID, span, output.Buffer, output.B, Order,
 	)
@@ -182,6 +193,10 @@ func WriteToGuppy(
 	for dim := 0; dim < 3; dim++ {
 		WriteField("v", vGrid, dim, i, Nb, output)
 	}
+
+	var err error
+	output.B, err = output.Writer.Flush()
+	if err != nil { panic(err.Error()) }
 }
 
 func main() {
@@ -202,14 +217,25 @@ func main() {
 		outBufs[i] = OutputBuffers(Nb)
 	}
 
+	log.Println("Finished setup.")
+	
 	for _, snap := range Snaps {
+		log.Println("Analyzing snap", snap)
+
+		log.Println("Running SplitArray(LoadGadgetFile)")
 		thread.SplitArray(NFiles, Workers, func(w, start, end, step int) {
 			sioBuf := sioBufs[w]
 			for i := start; i < end; i += step {
 				LoadGadgetFile(snap, i, xGrid, vGrid, sioBuf)
 			}
 		})
-
+		
+		err := os.Mkdir(OutputDir(snap), 0755) 
+		if err != nil && !strings.Contains(err.Error(), "file exists") {
+			panic(err.Error())
+		}
+		
+		log.Println("Running SplitArray(WriteToGuppy)")
 		nGuppyFiles := NBlocks*NBlocks*NBlocks
 		thread.SplitArray(nGuppyFiles, Workers, func(w, start, end, step int) {
 			output := outBufs[w]
