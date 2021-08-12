@@ -19,16 +19,22 @@ import (
 )
 
 const (
+	// *Mode constants are internal values indicating which mode the server is
+	// being run in.
 	ReadMode = iota
 	WriteMode
 	ExampleConfigMode
 	CreatePipesMode
 	DeletePipesMode
 
+	// *Format constants are internal values indicating which format
+	// output/input is in.
 	RockstarFormat = iota
 )
 
 var (
+	// Version is the version of the software. This can potentially be used
+	// to differentiate between breaking changes to the input/output format.
 	Version uint64 = 0x1
 	RockstarFormatCode uint64 = 0xffffffff00000001
 )
@@ -68,11 +74,13 @@ func main() {
 // Parsing functions //
 ///////////////////////
 
+// Config contains the values in the server's config files.
 type Config struct {
 	Format, GuppyFiles, PipeDirectory, Snapshots string
 	Blocks, Threads int64
 }
 
+// ParseConfig parses the config file with the name confName.
 func ParseConfig(confName string) *Config {	
 	conf := &Config{ }
 	
@@ -94,6 +102,9 @@ func ParseConfig(confName string) *Config {
 	return conf
 }
 
+// ParseArguments parses command line arguments, and returns the name of the
+// config file, the first and last blocks analyzed, and the server mode,
+// respectively.
 func ParseArguments() (confName string, first, last int, mode int) {
 	if len(os.Args) < 2 { Usage() }
 	
@@ -111,6 +122,7 @@ func ParseArguments() (confName string, first, last int, mode int) {
 	}
 }
 
+// ParseReadArguments parses arguments for the "read" server mode.
 func ParseReadArguments(args []string) (
 	confName string, first, last int, mode int,
 ) {
@@ -141,6 +153,7 @@ func ParseReadArguments(args []string) (
 	return confName, first, last, ReadMode
 }
 
+// ParseReadArguments parses arguments for the "write" server mode.
 func ParseWriteArguments(args []string) (
 	confName string, first, last int, mode int,
 ) {
@@ -171,6 +184,7 @@ func ParseWriteArguments(args []string) (
 	return confName, first, last, WriteMode
 }
 
+// ParseReadArguments parses arguments for the "example_config" server mode.
 func ParseExampleConfigArguments(args []string) (
 	confName string, first, last int, mode int,
 ) {
@@ -182,6 +196,7 @@ func ParseExampleConfigArguments(args []string) (
 	return "", -1, -1, ExampleConfigMode
 }
 
+// ParseReadArguments parses arguments for the "create_pipes" server mode.
 func ParseCreatePipesArguments(args []string) (
 	confName string, first, last int, mode int,
 ) {
@@ -197,6 +212,7 @@ func ParseCreatePipesArguments(args []string) (
 	return args[0], -1, -1, CreatePipesMode
 }
 
+// ParseReadArguments parses arguments for the "delete_pipes" server mode.
 func ParseDeletePipesArguments(args []string) (
 	confName string, first, last int, mode int,
 ) {
@@ -211,7 +227,7 @@ func ParseDeletePipesArguments(args []string) (
 	return args[0], -1, -1, DeletePipesMode
 }
 
-
+//Usage prints the expected usage and exits with an error code.
 func Usage() {
 	fmt.Fprintf(os.Stderr, `Expected usage:
 ./guppy_server read <ConfigName> <FirstPipe> <LastPipe>
@@ -240,6 +256,7 @@ func Usage() {
 // Server Modes //
 //////////////////
 
+// ExampleCOnfig prints and exmaple configuration file to stdout.
 func ExampleConfig() {
 	fmt.Println(`[guppy_server]
 
@@ -300,6 +317,7 @@ Threads = -1
 	os.Exit(0)
 }
 
+// Create pipes creates the appropriate number of pipes in PipeDirectory.
 func CreatePipes(conf *Config) {
 	for block := 0; block < int(conf.Blocks); block++ {
 		pipeName := path.Join(conf.PipeDirectory, fmt.Sprintf("pipe.%d", block))
@@ -312,6 +330,7 @@ func CreatePipes(conf *Config) {
 	}
 }
 
+// Create pipes deletes the pipes in PipeDirectory.
 func DeletePipes(conf *Config) {
 	for block := 0; block < int(conf.Blocks); block++ {
 		pipeName := path.Join(conf.PipeDirectory, fmt.Sprintf("pipe.%d", block))
@@ -324,9 +343,10 @@ func DeletePipes(conf *Config) {
 	}
 }
 
+// Read reads guppy files from disk and writes uncompressed data to pipes.
 func Read(conf *Config, first, last int) {
-	snaps := getSnaps(conf)
-	pipes := getPipes(conf, first, last)
+	snaps := GetSnaps(conf)
+	pipes := GetPipes(conf, first, last)
 	
 	workers, jobs := int(conf.Threads), len(pipes)
 	guppy.InitWorkers(workers)
@@ -356,7 +376,8 @@ func Read(conf *Config, first, last int) {
 	}
 }
 
-func getSnaps(conf *Config) []int {
+// GetSnaps return the target snapshots.
+func GetSnaps(conf *Config) []int {
 	snapSeq := conf.Snapshots
 	snaps, err := format.ExpandSequenceFormat(snapSeq)
 	if err != nil {
@@ -367,7 +388,8 @@ func getSnaps(conf *Config) []int {
 	return snaps
 }
 
-func getPipes(conf *Config, first, last int) []*os.File {
+// GetPipes returns the file handlers for the (pre-created) pipes.
+func GetPipes(conf *Config, first, last int) []*os.File {
 	pipes :=  make([]*os.File, last - first + 1)
 
 	var err error
@@ -383,6 +405,8 @@ func getPipes(conf *Config, first, last int) []*os.File {
 	return pipes
 }
 
+// Write reads uncompressed particles from pipes and compresses them into
+// .gup files.
 func Write(conf *Config, first, last int) {
 	panic("NYI")
 }
@@ -391,6 +415,8 @@ func Write(conf *Config, first, last int) {
 // Rockstar-format reading/writing //
 /////////////////////////////////////
 
+// GuppyToPipeRockstar converts a guppy file into a data stream through a
+// pipe formatted as rockstar particles.
 func GuppyToPipeRockstar(
 	conf *Config, worker, block, snap int, pipe *os.File,
 	buf [][]guppy.RockstarParticle, 
@@ -427,6 +453,8 @@ func GuppyToPipeRockstar(
 	WriteRockstarToPipe(pipe, hd, buf[block], worker, block, snap)
 }
 
+// WriteRockstarToPipe handles the actual disk writes that make up
+// GuppyToPipeRockstar.
 func WriteRockstarToPipe(
 	pipe *os.File, hd *guppy.Header, buf []guppy.RockstarParticle,
 	worker, block, snap int,
@@ -458,6 +486,7 @@ func WriteRockstarToPipe(
 	sliceHd.Cap /= 32
 }
 
+// GetSystemOrder returns the byte ordering of the current system.
 func GetSystemOrder() binary.ByteOrder {
     buf := [2]byte{ }
     *(*uint16)(unsafe.Pointer(&buf[0])) = uint16(1)
@@ -465,6 +494,8 @@ func GetSystemOrder() binary.ByteOrder {
 	return binary.LittleEndian
 }
 
+// RockstarHeader is the first block of data written to pipes in the Rockstar
+// format.
 type RockstarHeader struct {
 	Version, Format uint64
 	N, NTot int64
@@ -472,6 +503,7 @@ type RockstarHeader struct {
     Z, OmegaM, OmegaL, H100, L, Mass float64
 }
 
+// GuppyToRockstarHeader converts a Guppy header to a Rockstar header.
 func GuppyToRockstarHeader(hd *guppy.Header) *RockstarHeader {
 	return &RockstarHeader{
 		Version, RockstarFormatCode, hd.N, hd.NTot, hd.Span,
