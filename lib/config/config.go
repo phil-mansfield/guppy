@@ -32,7 +32,7 @@ file.
 
 	info := new(CatInfo)
 
-    vars := ConfigVars("cat_info")
+    vars := NewConfigVars("cat_info")
     vars.String(&info.CatName, "CatName", "")
     vars.Strings(&info.FurColors, "FurColors", []string{})
     vars.Float(&info.Age, "Age", -1)
