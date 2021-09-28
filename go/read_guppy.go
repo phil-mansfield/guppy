@@ -38,7 +38,12 @@ type Header struct {
 	N, NTot int64
 	// Span gives the dimensions of the slab of particles in the file.
 	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
-	Span [3]int64
+	// Offset gives the ID-cooridnate of the first particle in the block, and
+	// TotalSpan gives the width of the simulation in each dimensions. By
+	// default, reading IDs from a guppy file returns them with the Gadget-2
+	// conventions, and these quantities allow you to convert to some other
+	// convention as needed.
+	Span, Offset, TotalSpan [3]int64
 	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
 	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
 	// mass in Msun/h, respectively.
@@ -109,7 +114,7 @@ func ReadHeader(fileName string) *Header {
 	return &Header{
 		rhd.OriginalHeader,
 		rhd.Names, rhd.Types,
-		rhd.N, rhd.NTot, rhd.Span,
+		rhd.N, rhd.NTot, rhd.Span, rhd.Offset, rhd.TotalSpan,
 		rhd.Z, rhd.OmegaM, rhd.OmegaL, rhd.H100, rhd.L, rhd.Mass,
 	}
 }

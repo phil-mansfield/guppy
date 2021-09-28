@@ -16,7 +16,8 @@ import (
 func TestHeader(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{})
 	hd1 := &Header{
-		FixedWidthHeader{1<<8, 1<<30, [3]int64{8, 8, 8}, 15,
+		FixedWidthHeader{1<<8, 1<<30, [3]int64{8, 8, 8}, [3]int64{1, 2, 3},
+			[3]int64{100, 100, 100},
 			0.5, 0.27, 0.73, 0.70, 100.0, 3e9},
 		[]byte{5, 4, 3, 2, 1, 0}, []string{"a", "bb", "ccc", "", "eeeee"},
 		[]string{"u32", "u32", "f32", "f64", "u64"},
@@ -52,6 +53,7 @@ func TestFileSmall(t *testing.T) {
 	// of variables in the same file). But the backend still supports it.
 	span := [3]int{ 3, 4, 5 }
 	span64 := [3]int64{3, 4, 5}
+	totSpan := [3]int64{100, 100, 100}
 	n := span[0]*span[1]*span[2]
 	x0 := make([]float64, n)
 	x1 := make([]float32, n)
@@ -64,8 +66,18 @@ func TestFileSmall(t *testing.T) {
 	for i := range x2 { x2[i] = uint64(rand.Intn(100)) }
 	for i := range x3 { x3[i] = uint32(rand.Intn(100)) }
 
-	idOffset := uint64(15)
-	for i := range id { id[i] = uint64(i) + idOffset }
+	idOffset := [3]int64{ 1, 2, 3 }
+	i := 0
+	for iz := int64(0); iz < 5; iz++ {
+		for iy := int64(0); iy < 4; iy++ {
+			for ix := int64(0); ix < 3; ix++ {
+				id[i] = uint64(1 + iz + idOffset[2] +
+					(iy + idOffset[1])*totSpan[2] +
+					(ix + idOffset[0])*totSpan[2]*totSpan[1])
+				i++
+			}
+		}
+	}
 
 	fields := []particles.Field{
 		particles.NewFloat64("x{0}", x0), particles.NewFloat32("x{1}", x1),
@@ -92,7 +104,7 @@ func TestFileSmall(t *testing.T) {
 
 	var err error
 	wr := NewWriter("test_files/small_test.gup", fakeHd,
-		idOffset, span64, buf, b, order)
+		span64, idOffset, totSpan, buf, b, order)
 	for i := range fields {
 		err = wr.AddField(fields[i], methods[i])
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
@@ -210,7 +222,8 @@ func testLargeFile(t *testing.T, fileName string) {
 	snapHd, err := f.ReadHeader()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	wr := NewWriter(outName, snapHd, 0, span64, buf, b, order)
+	idOffset, totSpan := [3]int64{ }, [3]int64{1024, 1024, 1024}
+	wr := NewWriter(outName, snapHd, span64,idOffset, totSpan, buf, b, order)
 	xMethod := NewLagrangianDelta(span, xDelta)
 	vMethod := NewLagrangianDelta(span, vDelta)
 
