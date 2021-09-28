@@ -146,7 +146,7 @@ func TestVec32(t *testing.T) {
 	to := []int{ 0, 2, 4, 6, 8, 10 }
 	
 	name := "test_value"
-	names := []string{"test_value[0]", "test_value[1]", "test_value[2]"}
+	names := []string{"test_value{0}", "test_value{1}", "test_value{2}"}
 	
 	x := NewVec32(name, data)
 	
@@ -199,7 +199,7 @@ func TestVec64(t *testing.T) {
 	to := []int{ 0, 2, 4, 6, 8, 10 }
 	
 	name := "test_value"
-	names := []string{"test_value[0]", "test_value[1]", "test_value[2]"}
+	names := []string{"test_value{0}", "test_value{1}", "test_value{2}"}
 	
 	x := NewVec64(name, data)
 	

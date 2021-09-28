@@ -125,14 +125,14 @@ func ReadHeader(fileName string) *Header {
 // written to.
 //
 // For vector quantities, you can either load each component one by one
-// (e.g. "x[0]", "x[1]", etc.) and supply a []float32 or []float64 buffer,
+// (e.g. "x{0}", "x{1}", etc.) and supply a []float32 or []float64 buffer,
 // or you can get the full vector (e.g. "x") and supply a [][3]float32 or
 // [][3]float64.
 //
 // The variable "id" is implicitly contained in every .gup file and can be
 // read into a []uint64 array.
 //
-// If the buffer has the name "[RockstarParticle]" and type []RockstarParticle,
+// If the buffer has the name "{RockstarParticle}" and type []RockstarParticle,
 // the fields "x[0]", "x[1]", "x[2]" will be read into the X field, "v[0]",
 // "v[1]", and "v[2]" into the V field and "id" into the ID field.
 func ReadVar(fileName, name string, workerID int, buf interface{}) {
@@ -173,7 +173,7 @@ func readRockstarParticle(
 
 	expTypeName := "f32"
 	for dim := 0; dim < 3; dim++ {
-		name := fmt.Sprintf("x[%d]", dim)
+		name := fmt.Sprintf("x{%d}", dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -206,7 +206,7 @@ func readRockstarParticle(
 	// Next, do velocities
 
 	for dim := 0; dim < 3; dim++ {
-		name := fmt.Sprintf("v[%d]", dim)
+		name := fmt.Sprintf("v{%d}", dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -242,9 +242,10 @@ func readRockstarParticle(
 	name := "id"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
@@ -272,7 +273,7 @@ func readVec32(
 ) {
 	expTypeName := "f32"
 	for dim := 0; dim < 3; dim++ {
-		name := fmt.Sprintf("%s[%d]", nameBase, dim)
+		name := fmt.Sprintf("%s{%d}", nameBase, dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -308,7 +309,7 @@ func readVec64(
 ) {
 	expTypeName := "f64"
 	for dim := 0; dim < 3; dim++ {
-		name := fmt.Sprintf("%s[%d]", nameBase, dim)
+		name := fmt.Sprintf("%s{%d}", nameBase, dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -345,9 +346,10 @@ func readFloat32(
 	expTypeName := "f32"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
@@ -376,9 +378,10 @@ func readFloat64(
 	expTypeName := "f64"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
@@ -407,9 +410,10 @@ func readUint32(
 	expTypeName := "u32"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
@@ -438,9 +442,10 @@ func readUint64(
 	expTypeName := "u64"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)

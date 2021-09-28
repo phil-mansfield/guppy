@@ -6,7 +6,8 @@ import (
 	"testing"
 	"fmt"
 	"bytes"
-
+	"time"
+	
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
 	"github.com/phil-mansfield/guppy/lib/snapio"
@@ -67,8 +68,8 @@ func TestFileSmall(t *testing.T) {
 	for i := range id { id[i] = uint64(i) + idOffset }
 
 	fields := []particles.Field{
-		particles.NewFloat64("x[0]", x0), particles.NewFloat32("x[1]", x1),
-		particles.NewUint64("x[2]", x2), particles.NewUint32("x3", x3),
+		particles.NewFloat64("x{0}", x0), particles.NewFloat32("x{1}", x1),
+		particles.NewUint64("x{2}", x2), particles.NewUint32("x3", x3),
 	}
 	deltas := []float64{ 1e-3, 1e-3, 0, 0 }
 	order := binary.LittleEndian
@@ -107,7 +108,7 @@ func TestFileSmall(t *testing.T) {
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
 	names, types := rd.Names, rd.Types
-	expNames := []string{"x[0]", "x[1]", "x[2]", "x3", "id"}
+	expNames := []string{"x{0}", "x{1}", "x{2}", "x3", "id"}
  	if !eq.Strings(names, expNames) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
  	}
@@ -163,19 +164,42 @@ func TestFileSmall(t *testing.T) {
 	rd.Close()
 }
 
-func TestFileLarge(t *testing.T) {
+func TestLargeFiles(t *testing.T) {
+	fileNames := []string{
+		"../../large_test_data/L125_sheet000_snap_100.gadget2.dat",
+		"../../large_test_data/L125_sheet125_snap_100.gadget2.dat",
+		"../../large_test_data/L125_sheet333_snap_100.gadget2.dat",
+	}
+	for _, fileName := range fileNames {
+		testLargeFile(t, fileName)
+	}
+
+	fmt.Printf("Read gadget: %.3f \n", float64(dtReadGadget)*1e-9)
+	fmt.Printf("Read guppy: %.3f \n", float64(dtReadGuppy)*1e-9)
+}
+
+var (
+	dtReadGadget = int64(0)
+	dtReadGuppy = int64(0)
+)
+
+func testLargeFile(t *testing.T, fileName string) {
 	// File information
 	span := [3]int{ 128, 128, 128 }
 	span64 := [3]int64{ 128, 128, 128 }
-	fileName := "../../large_test_data/L125_sheet125_snap_100.gadget2.dat"
 	types := []string{"v32", "v32", "u32"}
 	names := []string{"x", "v", "id"}
 	order := binary.LittleEndian
+	outName := fmt.Sprintf("%s.gup", fileName)
 
 	// Read x and v
+	dtReadGadget -= time.Now().UnixNano()
+	
 	f, err := snapio.NewGadget2Cosmological(fileName, names, types, order)
 	if err != nil { t.Fatalf(err.Error()) }
 	x, v := quickRead(f, t)
+
+	dtReadGadget += time.Now().UnixNano()
 
 	xDelta := 2.4e-3
 	vDelta := 1.0
@@ -186,8 +210,7 @@ func TestFileLarge(t *testing.T) {
 	snapHd, err := f.ReadHeader()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	wr := NewWriter("../../large_test_data/large_test.gup", snapHd,
-		0, span64, buf, b, order)
+	wr := NewWriter(outName, snapHd, 0, span64, buf, b, order)
 	xMethod := NewLagrangianDelta(span, xDelta)
 	vMethod := NewLagrangianDelta(span, vDelta)
 
@@ -198,8 +221,8 @@ func TestFileLarge(t *testing.T) {
 		for j := range xx { xx[j] = x[j][k] }
 		for j := range vv { vv[j] = v[j][k] }
 
-		xComp := particles.NewFloat32(fmt.Sprintf("x[%d]", k), xx)
-		vComp := particles.NewFloat32(fmt.Sprintf("v[%d]", k), vv)
+		xComp := particles.NewFloat32(fmt.Sprintf("x{%d}", k), xx)
+		vComp := particles.NewFloat32(fmt.Sprintf("v{%d}", k), vv)
 
 		err = wr.AddField(xComp, xMethod)
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
@@ -215,11 +238,13 @@ func TestFileLarge(t *testing.T) {
 	b, err = wr.Flush()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	rd, err := NewReader("../../large_test_data/large_test.gup", buf, []byte{ })
+	dtReadGuppy -= time.Now().UnixNano()
+	
+	rd, err := NewReader(outName, buf, []byte{ })
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
 	names = rd.Names
-	expNames := []string{"x[0]", "v[0]", "x[1]", "v[1]", "x[2]", "v[2]", "id"}
+	expNames := []string{"x{0}", "v{0}", "x{1}", "v{1}", "x{2}", "v{2}", "id"}
 	dims := []int{ 0, 0, 1, 1, 2, 2 }
  	if !eq.Strings(names, expNames) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
@@ -245,6 +270,8 @@ func TestFileLarge(t *testing.T) {
  				field.Name(), dataExp[:3], data[:3])
  		}
  	}
+
+	dtReadGuppy += time.Now().UnixNano()
  }
 
 func verboseFloat32sEps(x, y []float32, eps float32) bool {

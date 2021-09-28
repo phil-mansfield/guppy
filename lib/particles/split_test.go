@@ -149,8 +149,8 @@ func TestEqualSplitUnigridBuffers(t *testing.T) {
 
 	pNames := []string{
 		"x_f32", "x_f64", "x_u32", "x_u64",
-		"x_v32[0]", "x_v32[1]", "x_v32[2]",
-		"x_v64[0]", "x_v64[1]", "x_v64[2]",
+		"x_v32{0}", "x_v32{1}", "x_v32{2}",
+		"x_v64{0}", "x_v64{1}", "x_v64{2}",
 	}
 	pTypes := []string{
 		"f32", "f64", "u32", "u64",
@@ -164,7 +164,7 @@ func TestEqualSplitUnigridBuffers(t *testing.T) {
 			name := pNames[j]
 			field, ok := p[i][name]
 			if !ok {
-				t.Errorf("field '%s' missing from p[%d]", name, i)
+				t.Errorf("field '%s' missing from p{%d}", name, i)
 				continue
 			}
 			
