@@ -10,6 +10,7 @@ import (
 	"bytes"
 
 	"github.com/phil-mansfield/guppy/lib/particles"
+	"github.com/DataDog/zstd"
 )
 
 // TypeFlag is a flag representing an array type.
@@ -41,7 +42,7 @@ func GetTypeFlag(x interface{}) TypeFlag {
 	}
 }
 
-// Buffer is an expandable buffer which is used by many of compress's funcitons
+// Buffer is an expandable buffer which is used by many of compress's functions
 // to avoid unneeded heap allocations.
 type Buffer struct {
 	b []byte
@@ -51,6 +52,7 @@ type Buffer struct {
 	f64 []float64
 
 	// These two buffers are specifically for quantiazation and encoding.
+	bZStd []byte
 	i64 []int64
 	q []int64
 	rng *RNG
@@ -113,7 +115,8 @@ func (buf *Buffer) Resize(n int) {
 // NewBuffer creates a new, resizable Buffer,
 func NewBuffer(seed uint64) *Buffer {
 	return &Buffer{ []byte{ }, []uint32{ }, []uint64{ },
-		[]float32{ }, []float64{ }, []int64{ }, []int64{ }, NewRNG(seed) }
+		[]float32{ }, []float64{ }, []byte{ }, []int64{ }, []int64{ },
+		NewRNG(seed) }
 }
 
 // quantize comverts an array to []uin64 and write it to out. If the array is
@@ -295,7 +298,8 @@ func (m *LagrangianDelta) Compress(
 	if err != nil { return err }
 
 	// Write to disk.
-	if err := WriteCompressedInts(buf.i64, buf.b, wr); err != nil {
+	buf.bZStd, err = WriteCompressedIntsZStd(buf.i64, buf.b, buf.bZStd, wr)
+	if err != nil {
 		return fmt.Errorf("zlib error while writing block '%s': %s",
 			f.Name(), err.Error())
 	}
@@ -337,7 +341,8 @@ func (m *LagrangianDelta) Decompress(
 	// Read data. This is done by adding bytes to buf.i64 one-by-one, so
 	// we need to clear the array first.
 	for i := range buf.i64 { buf.i64[i] = 0 }
-	buf.b, err = ReadCompressedInts(rd, buf.b, buf.i64)
+	buf.b, buf.bZStd, err = ReadCompressedIntsZStd(
+		rd, buf.b, buf.bZStd, buf.i64)
 	if err != nil {
 		return nil, fmt.Errorf("zlib error while reading block '%s': %s",
 			name, err.Error())
@@ -363,7 +368,7 @@ func intToByte(i64 []int64, b []byte, col int) {
 
 // byteToInt adds a one-byte column
 func byteToInt(b []byte, i64 []int64, col int) {
-	for i := range b {
+	for i := range i64 {
 		i64[i] += int64(uint64(b[i]) << (8*col))
 	}
 }
@@ -380,15 +385,17 @@ func resizeBytes(b []byte, n int) []byte {
 	return b
 }
 
-// writeCompressedInts writes an array of ints, q, to an io.Writer using
+// writeCompressedIntsZlib writes an array of ints, q, to an io.Writer using
 // column-ordered zlib blocks. b is used as a temporary internal buffer 
-// and must be the same length as q. 
-func WriteCompressedInts(q []int64, b []byte, wr io.Writer) error {
+// and must be the same length as q.
+//
+// This function is based on zlib entropy encoding
+func WriteCompressedIntsZLib(q []int64, b []byte, wr io.Writer) error {
 	if len(q) != len(b) {
 		panic(fmt.Sprintf("Internal error: output byte buffer has length %d," + 
 			" but quantized int array had length %d.", len(b), len(q)))
 	}
-
+	
 	for i := 0; i < 8; i++ {
 		// We need to create a new Writer each loop so a different codex is
 		// used for the different columns, letting the high-significance bits
@@ -402,17 +409,18 @@ func WriteCompressedInts(q []int64, b []byte, wr io.Writer) error {
 		err = wrZLib.Close()
 		if err != nil { return err }
 	}
-
+	
 	return nil
 }
 
-// readCompressedInts reads an array of ints, q, from an io.Reader using
+// readCompressedIntsZLib reads an array of ints, q, from an io.Reader using
 // column-ordered zlib blocks. b is used as a temporary internal buffer and
 // will be resized as needed. A resized version is returned by the
 // function.
-func ReadCompressedInts(rd io.Reader, b []byte, q []int64) ([]byte, error) {
-	buf := bytes.NewBuffer(b[:0])
-
+//
+// This function is based on zlib entropy encoding
+func ReadCompressedIntsZLib(rd io.Reader, b []byte, q []int64) ([]byte, error) {
+	buf := bytes.NewBuffer(b[:0])	
 	for i := 0; i < 8; i++ {
 		buf.Reset()
 
@@ -430,6 +438,72 @@ func ReadCompressedInts(rd io.Reader, b []byte, q []int64) ([]byte, error) {
 	}
 
 	return b, nil
+}
+
+// writeCompressedIntsZStd writes an array of ints, q, to an io.Writer using
+// column-ordered zlib blocks. b is used as a temporary internal buffer 
+// and must be the same length as q. buf is a buffer used internally and will
+// be resized as needed and returned. Just keep passing the same buffer to
+// the WriteCompressedIntsZLib function and you'll be okay.
+//
+// This function is based on zstd entropy encoding
+func WriteCompressedIntsZStd(
+	q []int64, b, buf []byte, wr io.Writer,
+) ([]byte, error) {
+	
+	if len(q) != len(b) {
+		panic(fmt.Sprintf("Internal error: output byte buffer has length %d,"+ 
+			" but quantized int array had length %d.", len(b), len(q)))
+	}
+	
+	for i := 0; i < 8; i++ {
+		// We need to create a new Writer each loop so a different codex is
+		// used for the different columns, letting the high-significance bits
+		// be compressed to basically nothing.
+		intToByte(q, b, i)
+
+		var err error
+		buf, err = zstd.CompressLevel(buf, b, 1)
+		if err != nil { return nil, err }
+
+		err = binary.Write(wr, binary.LittleEndian, int64(len(buf)))
+		if err != nil { return nil, err }
+		
+		_, err = wr.Write(buf)
+		if err != nil { return nil, err }
+	}
+
+	// Resize so I don't accidentally do something dumb with the buffer.
+	return buf[:0], nil
+}
+
+// readCompressedIntsZLib reads an array of ints, q, from an io.Reader using
+// column-ordered zlib blocks. b and buf are used as a temporary internals
+// buffers and  will be resized as needed. Resized versions are returned by the
+// function.
+//
+// This function is based on zstd entropy encoding.
+func ReadCompressedIntsZStd(
+	rd io.Reader, b, buf []byte, q []int64,
+) (bOut, bufOut []byte, err error) {
+	b = resizeBytes(b, len(q))
+	
+	for i := 0; i < 8; i++ {
+		nBuf := int64(0)
+		err := binary.Read(rd, binary.LittleEndian, &nBuf)
+		if err != nil { return nil, nil, err }
+		
+		buf = resizeBytes(buf, int(nBuf))
+		_, err = io.ReadFull(rd, buf)
+		
+		b, err = zstd.Decompress(b, buf)
+		if err != nil { return nil, nil, err }
+		
+		byteToInt(b, q, i)
+	}
+
+	// Resize so I don't accidentally do something dumb with the buffers.
+	return b[:0], buf[:0], nil
 }
 
 // splitArray splits the array x into n smaller arrays and writes their slice
