@@ -14,25 +14,25 @@ import (
 )
 
 var (
-	XDelta = 0.005
-	VDelta = 5.0
+	XDelta = 0.00125
+	VDelta = 1.25
 
 	SimPath = "/data/mansfield/simulations/Erebos_CBol_L63_N256/particles/raw"
-	GuppyPath = "/data/mansfield/simulations/Erebos_CBol_L63_N256/particles/guppy/dx5_dv5"
+	GuppyPath = "/data/mansfield/simulations/Erebos_CBol_L63_N256/particles/guppy/dx1.25_dv1.25_3"
 	SnapshotFormat = "snapdir_%04d"
 	InputFileFormat = "snapshot_%04d.%d"
 	OutputFileFormat = "snapshot_%04d.%d.gup"
 
 	NFiles = 16
 	Np = 256
-	NBlocks = 2
+	NBlocks = 4
 	Snaps = []int{189, 190}
 
 	GadgetVarNames = []string{"x", "v", "id"}
 	GadgetVarTypes = []string{"v32", "v32", "u64"} 
 
 	Order = binary.LittleEndian
-	Workers = 4
+	Workers = 1
 )
 
 func GadgetFileName(snap, i int) string {
@@ -91,9 +91,10 @@ func LoadGadgetFile(
 	Np64 := uint64(Np)
 
 	for i := range x {
-		ix := int(id[i] / (Np64*Np64)) 
-		iy := int((id[i] / Np64) % Np64)
-		iz := int(id[i] % Np64)
+		ID := id[i] - 1
+		ix := int(ID / (Np64*Np64)) 
+		iy := int((ID / Np64) % Np64)
+		iz := int(ID % Np64)
 
 		j := ix + Np*iy + Np*Np*iz
 
@@ -151,14 +152,14 @@ func WriteField(
 	offsetX := i % NBlocks
 
 	for jz := 0; jz < Nb; jz++ {
-		iz := jz + offsetZ
+		iz := jz + offsetZ*Nb
 		for jy := 0; jy < Nb; jy++ {
-			iy := jy + offsetY
+			iy := jy + offsetY*Nb
 			for jx := 0; jx < Nb; jx++ {
-				ix := jx + offsetX
+				ix := jx + offsetX*Nb
 
 				iBlock := jx + jy*Nb + jz*Nb*Nb
-				iGrid := ix + iy*Nb + iz*Nb*Nb
+				iGrid := ix + iy*Np + iz*Np*Np
 
 				output.Data[iBlock] = grid[iGrid][dim]
 			}
@@ -229,7 +230,7 @@ func main() {
 				LoadGadgetFile(snap, i, xGrid, vGrid, sioBuf)
 			}
 		})
-		
+
 		err := os.Mkdir(OutputDir(snap), 0755) 
 		if err != nil && !strings.Contains(err.Error(), "file exists") {
 			panic(err.Error())

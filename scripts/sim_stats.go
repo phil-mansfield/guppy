@@ -719,7 +719,9 @@ func AnalyzeHalo(iHalo int) {
 			vi, ok := field.Data().([]float32)
 			if !ok { panic("Impossible!") }
 
-			for j := range vBuf { vBuf[j][dim] = vi[j] }
+			for j := range vBuf {
+				vBuf[j][dim] = vi[j]
+			}
 		}
 
 		midBuf = rdV.ReuseMidBuf()

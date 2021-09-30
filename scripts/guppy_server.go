@@ -90,7 +90,7 @@ func ParseConfig(confName string) *Config {
 	vars.String(&conf.PipeDirectory, "PipeDirectory", "")
 	vars.String(&conf.Snapshots, "Snapshots", "")
 	vars.Int(&conf.Blocks, "Blocks", -1)
-	vars.Int(&conf.Blocks, "Threads", -1)
+	vars.Int(&conf.Threads, "Threads", -1)
 
 	err := config.ReadConfig(confName, vars)
 	if err != nil {
@@ -321,7 +321,12 @@ Threads = -1
 func CreatePipes(conf *Config) {
 	for block := 0; block < int(conf.Blocks); block++ {
 		pipeName := path.Join(conf.PipeDirectory, fmt.Sprintf("pipe.%d", block))
-		err := syscall.Mkfifo(pipeName, 0666)
+
+		if _, err := os.Stat(pipeName); !os.IsNotExist(err) {
+			os.Remove(pipeName)
+		}
+
+		err := syscall.Mkfifo(pipeName, 0600)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error while calling 'mkfifo %s': %s\n",
 				pipeName, err.Error())
@@ -346,10 +351,10 @@ func DeletePipes(conf *Config) {
 // Read reads guppy files from disk and writes uncompressed data to pipes.
 func Read(conf *Config, first, last int) {
 	snaps := GetSnaps(conf)
-	pipes := GetPipes(conf, first, last)
 	
-	workers, jobs := int(conf.Threads), len(pipes)
+	workers, jobs := int(conf.Threads), last - first + 1
 	guppy.InitWorkers(workers)
+	//workers = jobs
 
 	bufs := make([][]guppy.RockstarParticle, workers)
 	
@@ -365,10 +370,10 @@ func Read(conf *Config, first, last int) {
 	for _, snap := range snaps {
 		// Use a queue to assign threads to different pipes.
 		thread.WorkerQueue(workers, jobs, func(worker, job int) {
+			fmt.Fprintf(os.Stderr, "worker %d job %d\n", worker, job)
 			switch format {
 			case RockstarFormat:
-				GuppyToPipeRockstar(conf, worker,
-					job+first, snap, pipes[job], bufs)
+				GuppyToPipeRockstar(conf, worker, job+first, snap, bufs)
 			default:
 				panic("Internal error")
 			}
@@ -388,23 +393,6 @@ func GetSnaps(conf *Config) []int {
 	return snaps
 }
 
-// GetPipes returns the file handlers for the (pre-created) pipes.
-func GetPipes(conf *Config, first, last int) []*os.File {
-	pipes :=  make([]*os.File, last - first + 1)
-
-	var err error
-	for i := range pipes {
-		block := first + i
-		pipeName := path.Join(conf.PipeDirectory, fmt.Sprintf("pipe.%d", block))
-		if pipes[i], err = os.Open(pipeName); err != nil {
-			fmt.Fprintf(os.Stderr, "Could not open pipe '%s': %s",
-				pipeName, err.Error())
-		}
-	}
-
-	return pipes
-}
-
 // Write reads uncompressed particles from pipes and compresses them into
 // .gup files.
 func Write(conf *Config, first, last int) {
@@ -418,7 +406,7 @@ func Write(conf *Config, first, last int) {
 // GuppyToPipeRockstar converts a guppy file into a data stream through a
 // pipe formatted as rockstar particles.
 func GuppyToPipeRockstar(
-	conf *Config, worker, block, snap int, pipe *os.File,
+	conf *Config, worker, block, snap int,
 	buf [][]guppy.RockstarParticle, 
 ) {
 	vars := map[string]int{ "snapshot": snap, "block": block }	
@@ -434,9 +422,9 @@ func GuppyToPipeRockstar(
 
 	hd := guppy.ReadHeader(guppyName[0])
 	
-	if len(buf[block]) == 0 {
-		buf[block] = make([]guppy.RockstarParticle, hd.N)
-	} else if len(buf[block]) != int(hd.N) {
+	if len(buf[worker]) == 0 {
+		buf[worker] = make([]guppy.RockstarParticle, hd.N)
+	} else if len(buf[worker]) != int(hd.N) {
 		fmt.Fprintf(os.Stderr, "%s contains %d particles, but the previous " +
 			"the same block in the previously read snapshot had %d " +
 			"particles. Each guppy block must be the same size across all " +
@@ -444,35 +432,54 @@ func GuppyToPipeRockstar(
 			"manually ran guppy on different snapshots with different block " +
 			"sizes. In that case, you'll need to manually read the different " +
 			"snapshots separately, as well.\n", guppyName, hd.N,
-			len(buf[block]))
+			len(buf[worker]))
 		os.Exit(1)
 	}
 
-	guppy.ReadVar(guppyName[0], "[RockstarParticle]", worker, buf[block])
+	fmt.Printf("Reading %s with worker %d, block %d, snap %d\n",
+		guppyName[0], worker, block, snap)
+	guppy.ReadVar(guppyName[0], "[RockstarParticle]", -2, buf[worker])
 
-	WriteRockstarToPipe(pipe, hd, buf[block], worker, block, snap)
+	WriteRockstarToPipe(conf, hd, buf[worker], worker, block, snap)
 }
 
 // WriteRockstarToPipe handles the actual disk writes that make up
 // GuppyToPipeRockstar.
 func WriteRockstarToPipe(
-	pipe *os.File, hd *guppy.Header, buf []guppy.RockstarParticle,
+	conf *Config, hd *guppy.Header, buf []guppy.RockstarParticle,
 	worker, block, snap int,
 ) {
+	pipeName := path.Join(conf.PipeDirectory, fmt.Sprintf("pipe.%d", block))
+	fmt.Fprintf(os.Stderr, "Trying to open pipe, %s.\n", pipeName)
+	pipe, err := os.OpenFile(pipeName, os.O_WRONLY, 0600)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Could not open pipe '%s': %s",
+			pipeName, err.Error())
+		os.Exit(1)
+	}
+	fmt.Fprintf(os.Stderr, "Opened pipe, %s.\n", pipeName)
+
+	defer pipe.Close()
+
 	order := GetSystemOrder()
 	rsHeader := GuppyToRockstarHeader(hd)
 
-	err := binary.Write(pipe, order, rsHeader)
+	fmt.Printf("Writing header with worker %d, block %d, snap %d\n",
+		worker, block, snap)
+	err = binary.Write(pipe, order, rsHeader)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Worker %d could not write the rockstar " +
 			"header of block %d, snap %d to its pipe. %s", worker, block, snap,
 			err.Error())
+		os.Exit(1)
 	}
-	
-	sliceHd := *(*reflect.SliceHeader)(unsafe.Pointer(&buf[block]))
+
+	sliceHd := *(*reflect.SliceHeader)(unsafe.Pointer(&buf))
 	sliceHd.Len *= 32
-	sliceHd.Cap *= 32
-	
+	sliceHd.Cap *= 32	
+
+	fmt.Printf("Writing particle with worker %d, block %d, snap %d\n",	
+		worker, block, snap)
 	b := *(*[]byte)(unsafe.Pointer(&sliceHd))
 	_, err = pipe.Write(b)
 	if err != nil {
@@ -484,6 +491,9 @@ func WriteRockstarToPipe(
 	
 	sliceHd.Len /= 32
 	sliceHd.Cap /= 32
+
+	fmt.Printf("Finished writing with worker %d, block %d, snap %d\n",	
+		worker, block, snap)
 }
 
 // GetSystemOrder returns the byte ordering of the current system.
