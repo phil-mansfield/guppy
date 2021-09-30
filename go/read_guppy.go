@@ -3,6 +3,7 @@ package read_guppy
 
 import (
 	"github.com/phil-mansfield/guppy/lib/compress"
+	"github.com/phil-mansfield/guppy/lib"
 
 	"fmt"
 	"sync"
@@ -49,13 +50,6 @@ type Header struct {
 	// mass in Msun/h, respectively.
 	Z, OmegaM, OmegaL, H100, L, Mass float64
 
-}
-
-// RockstarParticle is a particle with the structure expected by the
-// Rockstar halo finder.
-type RockstarParticle struct {
-	ID uint64 
-	X, V [3]float32
 }
 
 // worker contains various buffers which prevent excess heap allocations
@@ -119,7 +113,7 @@ func ReadHeader(fileName string) *Header {
 	}
 }
 
-// ReadVar reads a variable with a given name from a givne file. If you
+// ReadVar reads a variable with a given name from a given file. If you
 // and to use one of the pre-allocated workers, you should give the integer
 // ID of that workers (i.e. in the range [0, nWorkers). ReadVar uses
 // mutexes to make sure that same worker isn't being used simultaneously,
@@ -137,9 +131,10 @@ func ReadHeader(fileName string) *Header {
 // The variable "id" is implicitly contained in every .gup file and can be
 // read into a []uint64 array.
 //
-// If the buffer has the name "{RockstarParticle}" and type []RockstarParticle,
-// the fields "x[0]", "x[1]", "x[2]" will be read into the X field, "v[0]",
-// "v[1]", and "v[2]" into the V field and "id" into the ID field.
+// If the buffer has the name "{RockstarParticle}" and type
+// []lib.RockstarParticle, the fields "x[0]", "x[1]", "x[2]" will be
+// read into the X field, "v[0]", "v[1]", and "v[2]" into the V field and "id"
+// into the ID field.
 func ReadVar(fileName, name string, workerID int, buf interface{}) {
 	// Allocated underlying buffers.
 	worker := getWorker(workerID)
@@ -159,11 +154,11 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 	case []float64: readFloat64(rd, name, x)
 	case []uint32: readUint32(rd, name, x)
 	case []uint64: readUint64(rd, name, x)
-	case []RockstarParticle: readRockstarParticle(rd, x)
+	case []lib.RockstarParticle: readRockstarParticle(rd, x)
 	default:
 		panic("The buffer passed to ReadVar is not [][3]float32, " + 
 			"[][3]float64, []float32, []float64, []uint32, []uint64, or " +
-			"[]RockstarParticle.")
+			"[]lib.RockstarParticle.")
 	}
 
 	worker.midBuf = rd.ReuseMidBuf()
@@ -172,7 +167,7 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 }
 
 func readRockstarParticle(
-	rd *compress.Reader, buf []RockstarParticle,
+	rd *compress.Reader, buf []lib.RockstarParticle,
 ) {
 	// Handle positions first.
 
