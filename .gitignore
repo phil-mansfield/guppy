@@ -57,3 +57,4 @@ go/*.py
 go/*.txt
 go/profiles/
 lib/compress/logs
+guppy
