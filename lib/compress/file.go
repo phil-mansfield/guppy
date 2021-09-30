@@ -46,12 +46,12 @@ type Writer struct {
 // Flush(). You can pass the same compress.Buffer each time.
 func NewWriter(
 	fname string, snapioHeader snapio.Header,
-	idOffset uint64, span [3]int64,
+	span, offset, totalSpan [3]int64,
 	buf *Buffer, b []byte, order binary.ByteOrder,
 ) *Writer {
 	header := bytes.NewBuffer([]byte{ })
 	data := bytes.NewBuffer(b[:0]) 
-	hd := convertSnapioHeader(snapioHeader, span, idOffset)
+	hd := convertSnapioHeader(snapioHeader, span, offset, totalSpan)
 
 	return &Writer{
 		*hd, fname, buf, order, []uint32{},
@@ -159,9 +159,11 @@ type FixedWidthHeader struct {
 	N, NTot int64
 	// Span gives the dimensions of the slab of particles in the file.
 	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
-	Span [3]int64
-	// IDOffset is the ID of the first particle in the file.
-	IDOffset uint64
+	// Offset gives the ID-coordinates of the particle at index zero. This
+	// allows the original IDs to be reconstructed. TotalSpan gives the span
+	// of the entire simulation volume (or the HR region if you're looking
+	// at a zoom-in).
+	Span, Offset, TotalSpan [3]int64
 	// Z, OmegaM, OmegaL, H100, L, and Mass give the redshift, Omega_m,
 	// Omega_Lambda, H0 / (100 km/s/Mpc), box width in comoving Mpc/h,
 	// and particle mass in Msun/h.
@@ -180,11 +182,11 @@ type Header struct {
 }
 
 func convertSnapioHeader(
-	snapioHeader snapio.Header, span [3]int64, idOffset uint64,
+	snapioHeader snapio.Header, span, offset, totalSpan [3]int64,
 ) *Header {
 	n := span[0]*span[1]*span[2]
 	return &Header{
-		FixedWidthHeader{n, snapioHeader.NTot(), span, idOffset,
+		FixedWidthHeader{n, snapioHeader.NTot(), span, offset, totalSpan,
 			snapioHeader.Z(), snapioHeader.OmegaM(),
 			snapioHeader.OmegaL(), snapioHeader.H100(),
 			snapioHeader.L(), snapioHeader.Mass()},
@@ -359,8 +361,16 @@ func (rd *Reader) ReadField(name string) (particles.Field, error) {
 func (rd *Reader) readID() (particles.Field, error) {
 	rd.buf.Resize(int(rd.N))
 	ids := rd.buf.u64
-	for i := range ids {
-		ids[i] = uint64(i) + rd.IDOffset
+
+	for i := int64(0); i < int64(len(ids)); i++ {
+		ix := i % rd.Span[0]
+		iy := (i / rd.Span[0]) % rd.Span[1]
+		iz := i / (rd.Span[0] * rd.Span[1])
+		// Same as Gadget-2.
+		ids[i] = uint64(1 +
+			(iz + rd.Offset[2]) +
+			(iy + rd.Offset[1])*rd.TotalSpan[2] +
+			(ix + rd.Offset[0])*(rd.TotalSpan[2]*rd.TotalSpan[1]))
 	}
 
 	return particles.NewUint64("id", ids), nil

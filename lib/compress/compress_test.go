@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"testing"
-
+	
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
@@ -45,27 +45,28 @@ func TestBuffer(t *testing.T) {
 	}
 }
 
-func TestReadCompressedInts(t *testing.T) {
+func TestReadCompressedIntsZLib(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{ })
 
 	byteHelloWorld := []byte("hello, world\n")
 	intHelloWorld := make([]int64, len(byteHelloWorld))
 	for i := range intHelloWorld { intHelloWorld[i] = int64(byteHelloWorld[i]) }
 
-	tests := [][]int64{ { }, {1},  {0, 1, 2, 3, 4, 5}, intHelloWorld}
+	tests := [][]int64{ { }, {int64(0x1111111111111111)}, {0}, {1}, {1, 0},
+		{0, 1, 2, 3, 4, 5}, intHelloWorld}
 
 	for i := range tests {
 		bIn := make([]byte, len(tests[i]))
 		bOut := make([]byte, len(tests[i]))
 		out := make([]int64, len(tests[i]))
 
-		err := WriteCompressedInts(tests[i], bIn, buf)
+		err := WriteCompressedIntsZLib(tests[i], bIn, buf)
 		if err != nil { 
 			t.Errorf(err.Error())
 			continue
 		}
-
-		bOut, err = ReadCompressedInts(buf, bOut, out)
+		
+		bOut, err = ReadCompressedIntsZLib(buf, bOut, out)
 		if err != nil { 
 			t.Errorf(err.Error())
 			continue
@@ -76,6 +77,40 @@ func TestReadCompressedInts(t *testing.T) {
 		}
 	}
 }
+
+func TestReadCompressedIntsZStd(t *testing.T) {
+	buf := bytes.NewBuffer([]byte{ })
+
+	byteHelloWorld := []byte("hello, world\n")
+	intHelloWorld := make([]int64, len(byteHelloWorld))
+	for i := range intHelloWorld { intHelloWorld[i] = int64(byteHelloWorld[i]) }
+
+	tests := [][]int64{ { }, {int64(0x1111111111111111)}, {0}, {1}, {1, 0},
+		{0, 1, 2, 3, 4, 5}, intHelloWorld}
+
+	for i := range tests {
+		bIn := make([]byte, len(tests[i]))
+		bOut := make([]byte, len(tests[i]))
+		out := make([]int64, len(tests[i]))
+
+		_, err := WriteCompressedIntsZStd(tests[i], bIn, []byte{}, buf)
+		if err != nil { 
+			t.Errorf(err.Error())
+			continue
+		}
+		
+		bOut, _, err = ReadCompressedIntsZStd(buf, bOut, []byte{}, out)
+		if err != nil { 
+			t.Errorf(err.Error())
+			continue
+		}
+
+		if !eq.Int64s(out, tests[i]) {
+			t.Errorf("%d) %d decompressed to %d.", i, tests[i], out)
+		}
+	}
+}
+
 
 func TestQuantize(t *testing.T) {
 	name := "meow"

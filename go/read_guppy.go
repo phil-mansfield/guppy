@@ -3,6 +3,7 @@ package read_guppy
 
 import (
 	"github.com/phil-mansfield/guppy/lib/compress"
+	"github.com/phil-mansfield/guppy/lib"
 
 	"fmt"
 	"sync"
@@ -38,19 +39,17 @@ type Header struct {
 	N, NTot int64
 	// Span gives the dimensions of the slab of particles in the file.
 	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
-	Span [3]int64
+	// Offset gives the ID-cooridnate of the first particle in the block, and
+	// TotalSpan gives the width of the simulation in each dimensions. By
+	// default, reading IDs from a guppy file returns them with the Gadget-2
+	// conventions, and these quantities allow you to convert to some other
+	// convention as needed.
+	Span, Offset, TotalSpan [3]int64
 	// Z, OmegaM, H100, L, and Mass give the redshift, Omega_m,
 	// H0 / (100 km/s/Mpc), box width in comoving Mpc/h, and particle
 	// mass in Msun/h, respectively.
 	Z, OmegaM, OmegaL, H100, L, Mass float64
 
-}
-
-// RockstarParticle is a particle with the structure expected by the
-// Rockstar halo finder.
-type RockstarParticle struct {
-	ID uint64 
-	X, V [3]float32
 }
 
 // worker contains various buffers which prevent excess heap allocations
@@ -109,12 +108,12 @@ func ReadHeader(fileName string) *Header {
 	return &Header{
 		rhd.OriginalHeader,
 		rhd.Names, rhd.Types,
-		rhd.N, rhd.NTot, rhd.Span,
+		rhd.N, rhd.NTot, rhd.Span, rhd.Offset, rhd.TotalSpan,
 		rhd.Z, rhd.OmegaM, rhd.OmegaL, rhd.H100, rhd.L, rhd.Mass,
 	}
 }
 
-// ReadVar reads a variable with a given name from a givne file. If you
+// ReadVar reads a variable with a given name from a given file. If you
 // and to use one of the pre-allocated workers, you should give the integer
 // ID of that workers (i.e. in the range [0, nWorkers). ReadVar uses
 // mutexes to make sure that same worker isn't being used simultaneously,
@@ -125,16 +124,17 @@ func ReadHeader(fileName string) *Header {
 // written to.
 //
 // For vector quantities, you can either load each component one by one
-// (e.g. "x[0]", "x[1]", etc.) and supply a []float32 or []float64 buffer,
+// (e.g. "x{0}", "x{1}", etc.) and supply a []float32 or []float64 buffer,
 // or you can get the full vector (e.g. "x") and supply a [][3]float32 or
 // [][3]float64.
 //
 // The variable "id" is implicitly contained in every .gup file and can be
 // read into a []uint64 array.
 //
-// If the buffer has the name "[RockstarParticle]" and type []RockstarParticle,
-// the fields "x[0]", "x[1]", "x[2]" will be read into the X field, "v[0]",
-// "v[1]", and "v[2]" into the V field and "id" into the ID field.
+// If the buffer has the name "{RockstarParticle}" and type
+// []lib.RockstarParticle, the fields "x[0]", "x[1]", "x[2]" will be
+// read into the X field, "v[0]", "v[1]", and "v[2]" into the V field and "id"
+// into the ID field.
 func ReadVar(fileName, name string, workerID int, buf interface{}) {
 	// Allocated underlying buffers.
 	worker := getWorker(workerID)
@@ -154,11 +154,11 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 	case []float64: readFloat64(rd, name, x)
 	case []uint32: readUint32(rd, name, x)
 	case []uint64: readUint64(rd, name, x)
-	case []RockstarParticle: readRockstarParticle(rd, x)
+	case []lib.RockstarParticle: readRockstarParticle(rd, x)
 	default:
 		panic("The buffer passed to ReadVar is not [][3]float32, " + 
 			"[][3]float64, []float32, []float64, []uint32, []uint64, or " +
-			"[]RockstarParticle.")
+			"[]lib.RockstarParticle.")
 	}
 
 	worker.midBuf = rd.ReuseMidBuf()
@@ -167,13 +167,13 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 }
 
 func readRockstarParticle(
-	rd *compress.Reader, buf []RockstarParticle,
+	rd *compress.Reader, buf []lib.RockstarParticle,
 ) {
 	// Handle positions first.
 
 	expTypeName := "f32"
 	for dim := 0; dim < 3; dim++ {
-		name := fmt.Sprintf("x[%d]", dim)
+		name := fmt.Sprintf("x{%d}", dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -206,7 +206,7 @@ func readRockstarParticle(
 	// Next, do velocities
 
 	for dim := 0; dim < 3; dim++ {
-		name := fmt.Sprintf("v[%d]", dim)
+		name := fmt.Sprintf("v{%d}", dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -242,9 +242,10 @@ func readRockstarParticle(
 	name := "id"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
@@ -272,7 +273,7 @@ func readVec32(
 ) {
 	expTypeName := "f32"
 	for dim := 0; dim < 3; dim++ {
-		name := fmt.Sprintf("%s[%d]", nameBase, dim)
+		name := fmt.Sprintf("%s{%d}", nameBase, dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -308,7 +309,7 @@ func readVec64(
 ) {
 	expTypeName := "f64"
 	for dim := 0; dim < 3; dim++ {
-		name := fmt.Sprintf("%s[%d]", nameBase, dim)
+		name := fmt.Sprintf("%s{%d}", nameBase, dim)
 		typeName := checkName(&rd.Header, name)
 		if typeName != expTypeName {
 			panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " + 
@@ -345,9 +346,10 @@ func readFloat32(
 	expTypeName := "f32"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
@@ -376,9 +378,10 @@ func readFloat64(
 	expTypeName := "f64"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
@@ -407,9 +410,10 @@ func readUint32(
 	expTypeName := "u32"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
@@ -438,9 +442,10 @@ func readUint64(
 	expTypeName := "u64"
 	typeName := checkName(&rd.Header, name)
 	if typeName != expTypeName {
-		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied buffer " + 
-			"is type '%s'. The file's Header struct contains information on " + 
-			"the types of fields.", name, typeName, expTypeName))
+		panic(fmt.Sprintf("Field '%s' has type '%s', but the supplied " +
+			"buffer is type '%s'. The file's Header struct contains " +
+			"information on the types of fields.",
+			name, typeName, expTypeName))
 	}
 
 	field, err := rd.ReadField(name)
