@@ -7,6 +7,7 @@ import (
 	"os"
 	"bytes"
 	"sort"
+	//"math"
 )
 
 const (
@@ -79,7 +80,25 @@ func (f *abstractGadget2) Read(name string, buf *Buffer) error {
 	}
 
 	// After all that error detection, reading is very easy. (Isn't I/O fun?)
-	return buf.read(file, f.names[i], f.hd.n)
+	err = buf.read(file, f.names[i], f.hd.n)
+
+	/*
+	if err == nil && name == "v" {
+		vIntr, err := buf.Get("v")
+		if err != nil { panic(fmt.Sprintf("Internal error: %s", err.Error())) }
+		v, ok := vIntr.([][3]float32)
+		if !ok { panic("Internal type consistency error.") }
+
+		rootA := float32(math.Sqrt(float64(1/(1 +f.hd.Z()))))
+		for i := range v {
+			for dim := 0; dim < 3; dim++ {
+				v[i][dim] *= rootA
+			}
+		}	
+	}
+*/
+
+	return err
 }
 
 func blockSize(typ string, n int) int64 {

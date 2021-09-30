@@ -58,12 +58,12 @@ type RockstarParticle struct {
 type worker struct {
 	buf *compress.Buffer
 	midBuf []byte
-
+	index int
 }
 
 // newWorker creates a blank worker object that can be used for reading.
 func newWorker() *worker {
-	return &worker{ compress.NewBuffer(0), []byte{ } }
+	return &worker{ compress.NewBuffer(0), []byte{ }, -1 }
 }
 
 // getWorker retrieves the buffer space associated with the given
@@ -84,14 +84,14 @@ func getWorker(workerID int) *worker {
 			workerID, len(workers)))
 	} else {
 		mutexes[workerID].Lock()
-		return workers[workerID] 
+		return workers[workerID]
 
 	}
 }
 
-func finishWorker(workerID int) {
-	if workerID != -1 {
-		mutexes[workerID].Unlock()
+func finishWorker(w *worker) {
+	if w.index != -1 {
+		mutexes[w.index].Unlock()
 	}
 }
 
@@ -163,7 +163,7 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 
 	worker.midBuf = rd.ReuseMidBuf()
 
-	finishWorker(workerID)
+	finishWorker(worker)
 }
 
 func readRockstarParticle(
@@ -494,6 +494,7 @@ func InitWorkers(nWorkers int) {
 
 	for i := 0; i < nWorkers; i++ {
 		workers[i] = newWorker()
+		workers[i].index = i
 		mutexes[i] = &sync.Mutex{ }
 	}
 
