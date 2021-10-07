@@ -2,14 +2,15 @@
 package thread
 
 import (
+	"fmt"
 	"runtime"
 )
 
 // Set sets the number of threads used by the process. Will crash if more
 // threads are requested than CPUs on the node. Setting n = -1 will use the
 // maximum number of threads possible.
-func Set(n int) {
-	if n > runtime.NumCPU() || n = -1 { n = runtime.NumCPU() }
+func Set(n int) int {
+	if n > runtime.NumCPU() || n == -1 { n = runtime.NumCPU() }
 	runtime.GOMAXPROCS(n)
 	return runtime.GOMAXPROCS(-1)
 }
