@@ -212,11 +212,9 @@ type LagrangianDelta struct {
 	delta float64
 }
 
-// NewLagrangianDelta creates a new LagrangianDelta object using a given byte
-// ordering. The data inside will have dimensions given by span, encoding
-// will be done along the dimension, dir (0 -> x, 1-> y, etc.), and floating
-// point data will be encoded such that values are stored to within at least
-// delta of their starting positions.
+// NewLagrangianDelta creates a new LagrangianDelta object covering data
+// with a given span and accuracy. The accuracy is only used for floating
+// point data compressed in this way.
 func NewLagrangianDelta(span [3]int, delta float64) *LagrangianDelta {
 	nTot := span[0]*span[1]*span[2]
 	return &LagrangianDelta{ binary.LittleEndian, span, nTot, delta }
