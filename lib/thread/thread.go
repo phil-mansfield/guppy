@@ -3,19 +3,15 @@ package thread
 
 import (
 	"runtime"
-
-	"github.com/phil-mansfield/guppy/lib/error"
 )
 
 // Set sets the number of threads used by the process. Will crash if more
 // threads are requested than CPUs on the node. Setting n = -1 will use the
 // maximum number of threads possible.
 func Set(n int) {
-	if n > runtime.NumCPU() {
-		error.External("%d threads requested, but your system only has %d cores per node. If you want guppy to use the maximum number of threads per node, set Threads=-1.")
-	}
-
+	if n > runtime.NumCPU() || n = -1 { n = runtime.NumCPU() }
 	runtime.GOMAXPROCS(n)
+	return runtime.GOMAXPROCS(-1)
 }
 
 // Split splits a task up into a specified number of jobs and runs them in
@@ -110,7 +106,7 @@ func SplitArray(
 	case weightedContiguous:
 		splitArrayWeightedContiguous(jobs, workers, config[0].weights, work)
 	default:
-		error.Internal("Unknown SplitArray strategy, %d.", strat)
+		panic(fmt.Sprintf("Unknown SplitArray strategy, %d.", strat))
 	}
 }
 
@@ -151,12 +147,12 @@ func splitArrayWeightedContiguous(
 //
 // workers, jobs := 16, 1000
 // WorkerQueue(
-//     workers, jobs,
-//     func(worker, job int) {
+//     jobs, workers,
+//     func(job, worker int) {
 //         /* use resources associated with [worker] to do [job] */
 //     },
 // )
-func WorkerQueue(workers, jobs int, work func(worker, job int)) {	
+func WorkerQueue(jobs, workers int, work func(job, worker int)) {	
 	jobChan := make(chan int, jobs)
 	lockChan := make(chan int, workers)
 
