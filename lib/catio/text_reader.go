@@ -52,7 +52,7 @@ func newTextReader(
 		if size > maxSize { maxSize = size }
 	}
 	reader.buf = make([]byte, maxSize)
-
+	
 	return reader
 }
 
@@ -110,7 +110,9 @@ func (t *textReader) ReadInts(
 
 	start := 0
 	for i := 0; i < t.Blocks(); i++ {
-		buf, start = t.bufferedReadInts(idx, i, buf, start)
+		skip := t.config.SkipLines
+		if i > 0 { skip = 0 }
+		buf, start = t.bufferedReadInts(idx, i, buf, start, skip)
 	}
 	
 	clipIntBuffers(buf, start)
@@ -127,7 +129,9 @@ func (t *textReader) ReadFloat64s(
 
 	start := 0
 	for i := 0; i < t.Blocks(); i++ {
-		buf, start = t.bufferedReadFloat64s(idx, i, buf, start)
+		skip := t.config.SkipLines
+		if i > 0 { skip = 0 }
+		buf, start = t.bufferedReadFloat64s(idx, i, buf, start, skip)
 	}
 	
 	clipFloat64Buffers(buf, start)
@@ -144,7 +148,9 @@ func (t *textReader) ReadFloat32s(
 
 	start := 0
 	for i := 0; i < t.Blocks(); i++ {
-		buf, start = t.bufferedReadFloat32s(idx, i, buf, start)
+		skip := t.config.SkipLines
+		if i > 0 { skip = 0 }
+		buf, start = t.bufferedReadFloat32s(idx, i, buf, start, skip)
 	}
 	
 	clipFloat32Buffers(buf, start)
@@ -164,7 +170,9 @@ func (t *textReader) ReadIntBlock(
 	buf := make([][]int, len(idx))
 	if len(bufs) > 0 { buf = bufs[0] }
 
-	buf, end := t.bufferedReadInts(idx, i, buf, 0)
+	skip := t.config.SkipLines
+	if i > 0 { skip = 0 }
+	buf, end := t.bufferedReadInts(idx, i, buf, 0, skip)
 
 	clipIntBuffers(buf, end)
 
@@ -178,7 +186,9 @@ func (t *textReader) ReadFloat64Block(
 	buf := make([][]float64, len(idx))
 	if len(bufs) > 0 { buf = bufs[0] }
 
-	buf, end := t.bufferedReadFloat64s(idx, i, buf, 0)
+	skip := t.config.SkipLines
+	if i > 0 { skip = 0 }
+	buf, end := t.bufferedReadFloat64s(idx, i, buf, 0, skip)
 
 	clipFloat64Buffers(buf, end)
 
@@ -192,7 +202,9 @@ func (t *textReader) ReadFloat32Block(
 	buf := make([][]float32, len(idx))
 	if len(bufs) > 0 { buf = bufs[0] }
 
-	buf, end := t.bufferedReadFloat32s(idx, i, buf, 0)
+	skip := t.config.SkipLines
+	if i > 0 { skip = 0 }
+	buf, end := t.bufferedReadFloat32s(idx, i, buf, 0, skip)
 
 	clipFloat32Buffers(buf, end)
 
@@ -200,7 +212,7 @@ func (t *textReader) ReadFloat32Block(
 }
 
 func (t *textReader) bufferedReadInts(
-	idxs []int, i int, bufs [][]int, start int,
+	idxs []int, i int, bufs [][]int, start, skip int,
 ) (outBuf [][]int, end int) {
 	runtime.GC()
 
@@ -213,6 +225,7 @@ func (t *textReader) bufferedReadInts(
 
 	// Separate and clean lines
 	lines, nComm := split(t.buf[:n], '\n', t.config.Comment)
+	lines = lines[skip:]
 	lines = uncomment(lines, t.config.Comment, nComm)
 	lines = trim(lines, t.config.Separator)
 
@@ -239,7 +252,7 @@ func (t *textReader) bufferedReadInts(
 }
 
 func (t *textReader) bufferedReadFloat64s(
-	idxs []int, i int, bufs [][]float64, start int,
+	idxs []int, i int, bufs [][]float64, start, skip int,
 ) (outBuf [][]float64, end int) {
 	runtime.GC()
 
@@ -252,6 +265,7 @@ func (t *textReader) bufferedReadFloat64s(
 
 	// Separate and clean lines
 	lines, nComm := split(t.buf[:n], '\n', t.config.Comment)
+	lines = lines[skip:]
 	lines = uncomment(lines, t.config.Comment, nComm)
 	lines = trim(lines, t.config.Separator)
 
@@ -278,7 +292,7 @@ func (t *textReader) bufferedReadFloat64s(
 }
 
 func (t *textReader) bufferedReadFloat32s(
-	idxs []int, i int, bufs [][]float32, start int,
+	idxs []int, i int, bufs [][]float32, start, skip int,
 ) (outBuf [][]float32, end int) {
 	runtime.GC()
 
@@ -291,6 +305,7 @@ func (t *textReader) bufferedReadFloat32s(
 
 	// Separate and clean lines
 	lines, nComm := split(t.buf[:n], '\n', t.config.Comment)
+	lines = lines[skip:]
 	lines = uncomment(lines, t.config.Comment, nComm)
 	lines = trim(lines, t.config.Separator)
 
