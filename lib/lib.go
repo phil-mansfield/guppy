@@ -9,6 +9,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
 	"path"
 	
@@ -17,6 +18,8 @@ import (
 
 	"github.com/phil-mansfield/guppy/lib/config"
 	"github.com/phil-mansfield/guppy/lib/format"
+	"github.com/phil-mansfield/guppy/lib/snapio"
+	"github.com/phil-mansfield/guppy/lib/compress"
 )
 
 var (
@@ -238,6 +241,13 @@ OutputGridWidth = 4
 # you had a typo in the Output variable and crash.
 # CreateMissingDirectories = false
 
+# ByteOrder specifies what byte ordering multi-byte types use in your input
+# files. This can be set to whatever ordering your current machine uses via
+# SystemOrder, or can be set manually to BigEndian or LittleEndian. If you
+# don't know, assume LittleEndian: this is the most common ordering and guppy
+# can usually catch when you're wrong and tell you.
+# ByteOrder = SystemOrder
+
 #####################
 # File Type Options #
 #####################
@@ -254,21 +264,52 @@ FileType = LGadget-2
 
 # GadgetVars gives the names of the different data blocks in your Gadget file.
 # You don't need this variable if you aren't using Gadget. If you haven't done
-# anything to your gadget configuration files, the example  gives the correct
-# names/ordering. You're free to change these names to whatever you want, but
-# (1) make sure to make the same changes to the Vars varaible, (2) don't use
-# any braces in your variable names, since guppy's internal naming conventions
-# use braces to separate user-create named from guppy-created annotations, and
-# (3) the 'id' and 'x' variable names are handled specially.
+# anything to your gadget configuration files, the example gives the correct
+# names/ordering. guppy will check that some commonly-used field names have the
+# right types.
+# x - v32
+# v - v32
+# id - u32 or u64
+# phi - f32
+# acc - v32
+# dt - f32
 # GadgetVars = x, v, id
 
 # GadgetTypes gives the types of each Gadget block, using the same naming
 # conventions as the Vars variable. If you haven't done anything to your Gadget
 # configuration, the example gives the right types. The most common change from
-# the default is using 64-bit IDs instead of 32-bit IDs. If you have >2 billion
-# particles, you're definitely using 64-bit IDs.
+# the default is using 64-bit IDs instead of 32-bit IDs. If you have >=4
+# billion particles, you're definitely using 64-bit IDs.
 # GadgetTypes = v32, v32, u32
+
+#######################
+# Performance Options #
+#######################
+
+# Threads sets the number of threads per node used by guppy to compress the
+# files. Most users will want to keep this to the default value of -1, which
+# will use one thread per core. I'd only suggest changing this if you're on a
+# shared machine without queueing and don't want to interfere with other jobs.
+# Threads = -1
 `
+}
+
+type WriteConfig struct {
+	CompressionMethod string
+	Vars, Types []string
+	Accuracies []float64
+	
+	Input, Output string
+	Snaps []string
+	OutputGridWidth int64
+	CreateMissingDirectories bool
+	ByteOrder string
+	
+	FileType string
+	GadgetVars, GadgetTypes []string
+	IDOrder string
+
+	Threads int64
 }
 
 func ParseWriteConfig(configName string) (*WriteConfig, error) {
@@ -285,32 +326,19 @@ func ParseWriteConfig(configName string) (*WriteConfig, error) {
 	vars.Strings(&cfg.Snaps, "Snaps", []string{})
 	vars.Int(&cfg.OutputGridWidth, "OutputGridWidth", -1)
 	vars.Bool(&cfg.CreateMissingDirectories, "CreateMissingDirectories", false)
-
+	vars.String(&cfg.ByteOrder, "ByteOrder", "SystemOrder")
+	
 	vars.String(&cfg.FileType, "FileType", "")
 	vars.Strings(&cfg.GadgetVars, "GadgetVars", []string{"x", "v", "id"})
 	vars.Strings(&cfg.GadgetTypes, "GadgetTypes",
 		[]string{"v32", "v32", "u32"})
 	vars.String(&cfg.IDOrder, "IDOrder", "ZUnigridPlusOne")
-
+	vars.Int(&cfg.Threads, "Threads", -1)
+	
 	err := config.ReadConfig(configName, vars)
 	if err != nil { return nil, err }
 
 	return cfg, nil
-}
-
-type WriteConfig struct {
-	CompressionMethod string
-	Vars, Types []string
-	Accuracies []float64
-	
-	Input, Output string
-	Snaps []string
-	OutputGridWidth int64
-	CreateMissingDirectories bool
-
-	FileType string
-	GadgetVars, GadgetTypes []string
-	IDOrder string
 }
 
 func CheckWriteConfig(cfg *WriteConfig) error {
@@ -387,12 +415,28 @@ func CheckWriteConfig(cfg *WriteConfig) error {
 			cfg.FileType)
 	}
 
+	// IDOrder
 	if !containsString(SupportedIDOrders, cfg.IDOrder) {
 		return fmt.Errorf("The IDOrder variable was set to %s, " +
 			"but only supported orderings are: %s", cfg.IDOrder,
 			SupportedIDOrders)
 	}
 
+	// Threads
+	if cfg.Threads < -1 || cfg.Threads == 0 {
+		return fmt.Errorf("The Threads variable was set to %d, but the " +
+			"only valid values are -1 or a positive integer.", cfg.Threads)
+	}
+
+	// ByteOrder
+	switch cfg.ByteOrder {
+	case "SystemOrder", "BigEndian", "LittleEndian":
+	default:
+		return fmt.Errorf("The ByteOrder variable was set to %s, but the " +
+			"only valid values are SystemOrder, LittleEndian, and BigEndian",
+			cfg.ByteOrder)
+	}
+	
 	return nil
 }
 
@@ -544,4 +588,111 @@ func containsStringIndex(list []string, x string) int {
 		if list[i] == x { return i }
 	}
 	return -1
+}
+
+func InputBuffers(hd snapio.Header, workers int) []*snapio.Buffer {
+	out := make([]*snapio.Buffer, workers)
+	for i := range out {
+		var err error
+		out[i], err = snapio.NewBuffer(hd)
+		if err != nil { panic(fmt.Sprintf("Internal error: %s", err.Error())) }
+	}
+	return out
+}
+
+func byteOrder(cfg *WriteConfig) binary.ByteOrder {
+	switch cfg.ByteOrder {
+	case "LittleEndian":
+		return binary.LittleEndian
+	case "BigEndian":
+		return binary.BigEndian
+	case "SystemOrder":
+		return SystemByteOrder()
+	}
+	panic(fmt.Sprintf("Internal error: unrecognized ByteOrder %s",
+		cfg.ByteOrder))
+}
+
+
+type OutputBuffer struct {
+	Buffer *compress.Buffer
+	B []byte
+	Writer *compress.Writer
+}
+
+func OutputBuffers(cfg *WriteConfig, workers int) []*OutputBuffer {
+	out := make([]*OutputBuffer, workers)
+	for i := range out {
+		out[i] = &OutputBuffer{ compress.NewBuffer(0), []byte{ }, nil }
+	}
+	return out
+}
+
+func ExpandFileNames(cfg *WriteConfig) (
+	snaps []int, inputs, outputs [][]string,
+) {
+	snaps, err := expandSnaps(cfg.Snaps)
+	if err != nil { panic(fmt.Sprintf("Internal error: %s", err.Error())) }
+
+	gw := cfg.OutputGridWidth
+	nOutputs := int(gw*gw*gw)
+	
+	inputs, outputs = [][]string{}, [][]string{}
+	for _, snap := range snaps {
+		inputMap := map[string]int{ "snap": snap }
+		snapInputs, err := format.ExpandFormatString(cfg.Input, inputMap)
+		if err != nil { panic(fmt.Sprintf("Internal error: %s", err.Error())) }
+
+		inputs = append(inputs, snapInputs)
+
+		snapOutputs := make([]string, nOutputs)
+		for i := 0; i < nOutputs; i++ {
+			outputMap := map[string]int{ "snap": snap, "output": i }
+
+			iSnapOutputs, err := format.ExpandFormatString(
+				cfg.Output, outputMap)
+			if err != nil {
+				panic(fmt.Sprintf("Internal error: %s", err.Error()))
+			}
+			snapOutputs[i] = iSnapOutputs[0]
+		}
+
+		outputs = append(outputs, snapOutputs)
+	}
+
+	return snaps, inputs, outputs
+}
+
+func GetSnapioHeader(cfg *WriteConfig, file string) (snapio.Header, error) {
+	var(
+		err error
+		f snapio.File
+	)
+
+	order := byteOrder(cfg)
+
+	switch cfg.FileType {
+	case "Gadget-2":
+		f, err = snapio.NewGadget2Cosmological(file, cfg.GadgetVars,
+			cfg.GadgetTypes, order)
+	case "LGadget-2":
+		f, err = snapio.NewLGadget2(file, cfg.GadgetVars,
+			cfg.GadgetTypes, order)
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("Cannot read %s: %s", file, err.Error())
+	}
+
+	hd, err := f.ReadHeader()
+	if err != nil {
+		return nil, fmt.Errorf("Cannot read %s: %s", file, err.Error())
+	}
+	return hd, nil
+}
+
+func RandomFileName(files [][]string) string {
+	i := rand.Intn(len(files))
+	j := rand.Intn(len(files[i]))
+	return files[i][j]
 }

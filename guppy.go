@@ -9,6 +9,9 @@ import (
 	
 	read_guppy "github.com/phil-mansfield/guppy/go"
 	"github.com/phil-mansfield/guppy/lib"
+	"github.com/phil-mansfield/guppy/lib/particles"
+	"github.com/phil-mansfield/guppy/lib/snapio"
+	"github.com/phil-mansfield/guppy/lib/thread"
 )
 
 func main() {
@@ -20,10 +23,21 @@ func main() {
 	switch mode {
 	case "read": Read(flags)
 	case "write": Write(flags)
-	case "write_server": WriteServer(flags)
 	default:
 		ModeError()
 	}
+}
+
+func ModeError() {
+	fmt.Fprintf(os.Stderr,
+`guppy requires at least a valid argument telling it what mode to run.
+Valid modes are:
+            read - reads particles from a file and writes them to stdout.
+           write - convert files that are on disk into .gup files according to
+                   some config file.
+Run "./guppy <mode_name> --help to print help information about what flags a
+particular mode takes.%s`, "\n")
+	os.Exit(1)
 }
 
 func Read(flags []string) {
@@ -234,25 +248,93 @@ func WriteHeader(hd *read_guppy.Header, f *os.File) error {
 	return binary.Write(f, lib.SystemByteOrder(), ohd)
 }
 
-
 func Write(flags []string) {
+	set := flag.NewFlagSet("read", flag.ContinueOnError)
+	configPtr := set.String("config", "", "Configuration file specifying " +
+		"what files to compress and how. 'guppy write --config example' " +
+		"will print an example config file with comments to stdout.")
+	checkPtr := set.Bool("check", false, "If true, guppy will check the " +
+		"configuration file without running. Useful to run before " +
+		"submitting long jobs.")
+	err := set.Parse(flags)
+
+	config, check := *configPtr, *checkPtr
+	if config == "example" {
+		fmt.Println(lib.ExampleWriteConfig())
+		return
+	}
+
+	cfg, err := lib.ParseWriteConfig(config)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Could not parse config file: %s", err.Error())
+		os.Exit(1)
+	} else if err := lib.CheckWriteConfig(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Invalid values in the config file %s: %s",
+			config, err.Error())
+		os.Exit(1)
+	}
+
+	if check { return }
+
+	err = SingleNodeWrite(cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+}
+
+func SingleNodeWrite(cfg *lib.WriteConfig) error {
+	workers := thread.Set(int(cfg.Threads))
+
+	snaps, inputs, outputs := lib.ExpandFileNames(cfg)
+	// We choose a random file here so all the workers aren't fighting the
+	// file system over the same data.
+	hd0, err := lib.GetSnapioHeader(cfg, lib.RandomFileName(inputs))
+	if err != nil { return err }
+	
+	inputBuffers := lib.InputBuffers(hd0, workers)
+	outputBuffers := lib.OutputBuffers(cfg, workers)
+	read_guppy.InitWorkers(workers)
+
+	part := CreateParticles(cfg, hd0)
+	
+	for iSnap := range snaps {
+		readJobs, writeJobs := len(inputs[iSnap]), len(outputs[iSnap])
+
+		// Note: this wastes memory a little bit: instead we could read one
+		// field, transfer it, write it to memory for each file, then repeat
+		// and finally write at the end. I'll revisit this if the memory
+		// constraints are intense.
+		
+		thread.WorkerQueue(readJobs, workers, func(worker, job int) {
+			ReadToParticles(cfg, inputs[iSnap][job], inputBuffers[worker],part)
+		})
+
+		thread.WorkerQueue(writeJobs, workers, func(worker, job int) {
+			WriteFromParticles(cfg, outputs[iSnap][job], outputBuffers[worker],
+				job, worker, part)
+		})
+	}
+
+	return nil
+}
+
+func CreateParticles(
+	cfg *lib.WriteConfig, hd snapio.Header,
+) particles.Particles {
+	for i := range cfg
+}
+
+func ReadToParticles(
+	cfg *lib.WriteConfig, input string,
+	buf *snapio.Buffer, p particles.Particles,
+) {
 	panic("NYI")
 }
 
-func WriteServer(flags []string) {
+func WriteFromParticles(
+	cfg *lib.WriteConfig, output string, buf *lib.OutputBuffer,
+	job, worker int, p particles.Particles,
+) {
 	panic("NYI")
-}
-
-func ModeError() {
-	fmt.Fprintf(os.Stderr,
-`guppy requires at least a valid argument telling it what mode to run.
-Valid modes are:
-            read - reads particles from a file and writes them to stdout.
-    write_server - manages writer processes and helps them transfer particles
-                   between themselves.
-           write - writes particles to disk that it's either read from files on
-                   disk, or that have been written to its stdin.
-Run "./guppy <mode_name> --help to print help information about what flags a
-particular mode takes.%s`, "\n")
-	os.Exit(1)
 }
