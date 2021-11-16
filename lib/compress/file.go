@@ -179,6 +179,7 @@ type Header struct {
 	// 64-bit unisghned integers, respectively, anf "f32"/"f64" give 32-bit
 	// and 64-bit floats, respectively.
 	Names, Types []string
+	Sizes []int64
 }
 
 func convertSnapioHeader(
@@ -190,7 +191,7 @@ func convertSnapioHeader(
 			snapioHeader.Z(), snapioHeader.OmegaM(),
 			snapioHeader.OmegaL(), snapioHeader.H100(),
 			snapioHeader.L(), snapioHeader.Mass()},
-		snapioHeader.ToBytes(), []string{}, []string{},
+		snapioHeader.ToBytes(), []string{}, []string{}, []int64{},
 	}	
 }
 
@@ -207,6 +208,7 @@ func (hd *Header) read(f io.Reader, order binary.ByteOrder) error {
 	var nFields uint32
 	if err := binary.Read(f, order, &nFields); err != nil { return err }
 	hd.Names, hd.Types = make([]string, nFields+1), make([]string, nFields+1)
+	hd.Sizes = make([]int64, nFields+1)
 
 	nNames := make([]uint32, nFields)
 	if err := binary.Read(f, order, nNames); err != nil { return err }
@@ -305,13 +307,20 @@ func NewReader(
 	if err := binary.Read(f, order, rd.methodFlags); err != nil {
 		return nil, err
 	}
+
 	if err := binary.Read(f, order, rd.headerEdges); err != nil {
 		return nil, err
 	}
+
 	if err := binary.Read(f, order, rd.dataEdges); err != nil {
 		return nil, err
 	}
 	
+	for i := 0; i < len(rd.Header.Sizes) - 1; i++ {
+		rd.Header.Sizes[i] = (rd.dataEdges[i+1] - rd.dataEdges[i]) +
+			(rd.headerEdges[i+1] - rd.headerEdges[i])
+	}
+
 	return rd, err
 }
 

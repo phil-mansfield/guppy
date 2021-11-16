@@ -21,6 +21,7 @@ func TestHeader(t *testing.T) {
 			0.5, 0.27, 0.73, 0.70, 100.0, 3e9},
 		[]byte{5, 4, 3, 2, 1, 0}, []string{"a", "bb", "ccc", "", "eeeee"},
 		[]string{"u32", "u32", "f32", "f64", "u64"},
+		[]int64{0, 0, 0, 0, 0},
 	}
 	hd2 := *hd1
 
@@ -61,7 +62,7 @@ func TestFileSmall(t *testing.T) {
 	x3 := make([]uint32, n)
 	id := make([]uint64, n)
 
-	for i := range x0 { x0[i] = rand.Float64() - 0.5 }
+	for i := range x0 { x0[i] = rand.Float64() }
 	for i := range x1 { x1[i] = float32(rand.Float64()) - 0.5 }
 	for i := range x2 { x2[i] = uint64(rand.Intn(100)) }
 	for i := range x3 { x3[i] = uint32(rand.Intn(100)) }
@@ -87,10 +88,10 @@ func TestFileSmall(t *testing.T) {
 	order := binary.LittleEndian
 
 	methods := []Method{
-		NewLagrangianDelta(span, deltas[0]),
-		NewLagrangianDelta(span, deltas[1]),
-		NewLagrangianDelta(span, deltas[2]),
-		NewLagrangianDelta(span, deltas[3]),
+		NewLagrangianDelta(span, deltas[0], 1.0),
+		NewLagrangianDelta(span, deltas[1], 0.0),
+		NewLagrangianDelta(span, deltas[2], 0.0),
+		NewLagrangianDelta(span, deltas[3], 0.0),
 	}
 
 	buf := NewBuffer(0)
@@ -224,8 +225,8 @@ func testLargeFile(t *testing.T, fileName string) {
 
 	idOffset, totSpan := [3]int64{ }, [3]int64{1024, 1024, 1024}
 	wr := NewWriter(outName, snapHd, span64,idOffset, totSpan, buf, b, order)
-	xMethod := NewLagrangianDelta(span, xDelta)
-	vMethod := NewLagrangianDelta(span, vDelta)
+	xMethod := NewLagrangianDelta(span, xDelta, 125.0)
+	vMethod := NewLagrangianDelta(span, vDelta, 0.0)
 
 	for k := 0; k < 3; k++ {
 		xx := make([]float32, len(x))
