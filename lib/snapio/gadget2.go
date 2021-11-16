@@ -34,6 +34,7 @@ func (f *abstractGadget2) Read(name string, buf *Buffer) error {
 		return fmt.Errorf("The file %s does not exist or cannot be " + 
 			"accessed.", f.fileName)
 	}
+	defer file.Close()
 
 	// Find the block's offset.
 	offset := int64(8 + gadget2HeaderSize)

@@ -23,8 +23,8 @@ var (
 // RockstarParticle is a particle with the structure expected by the
 // Rockstar halo finder.
 type RockstarParticle struct {
-	X, V [3]float32
 	ID uint64 
+	X, V [3]float32
 }
 
 type PipeHeader struct {

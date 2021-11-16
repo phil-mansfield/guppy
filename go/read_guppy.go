@@ -34,6 +34,8 @@ type Header struct {
 	// 64-bit unsigned integers, respectively, and "f32"/"f64" give 32-bit
 	// and 64-bit floats, respectively.
 	Names, Types []string
+	// Sizes gives the size of each variable in bytes.
+	Sizes []int64
 	// N and NTot give the number of particles in the file and in the
 	// total simulation, respectively.
 	N, NTot int64
@@ -100,14 +102,14 @@ func ReadHeader(fileName string) *Header {
 	rd, err := compress.NewReader(fileName, worker.buf, worker.midBuf)
 	if err != nil {
 		panic(fmt.Sprintf("Guppy encountered an error while opening and " + 
-			"initializing the file: %s", err.Error()))
+			"initializing %s: %s", fileName, err.Error()))
 	}
 	defer rd.Close()
 
 	rhd := &rd.Header
 	return &Header{
 		rhd.OriginalHeader,
-		rhd.Names, rhd.Types,
+		rhd.Names, rhd.Types, rhd.Sizes,
 		rhd.N, rhd.NTot, rhd.Span, rhd.Offset, rhd.TotalSpan,
 		rhd.Z, rhd.OmegaM, rhd.OmegaL, rhd.H100, rhd.L, rhd.Mass,
 	}

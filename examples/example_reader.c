@@ -6,8 +6,8 @@
 #include <string.h>
 
 typedef struct RockstarParticle {
-  float X[3], V[3];
   uint64_t ID;
+  float X[3], V[3];
 } RockstarParticle;
 
 typedef struct GuppyHeader {

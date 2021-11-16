@@ -13,9 +13,11 @@ typedef struct Guppy_Header {
 	// Names gives the names of all the variables stored in the file.
 	// Types give the types of these variables. "u32"/"u64" give 32-bit and
 	// 64-bit unsigned integers, respectively, and "f32"/"f64" give 32-bit
-	// and 64-bit floats, respectively. NVars is the number of variables
-	// stored in the file.
+	// and 64-bit floats, respectively. Sizes gives the size of each variable
+    // in bytes. (It will not be useful for most users.)
+    // NVars is the number of variables stored in the file.
 	char **Names, **Types;
+    int64_t *Sizes;
 	int64_t NVars;
 	// N and NTot give the number of particles in the file and in the
 	// total simulation, respectively.

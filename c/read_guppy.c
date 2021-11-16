@@ -16,6 +16,7 @@ void Guppy_FreeHeader(Guppy_Header *hd) {
 	}
 	free(hd->Names);
 	free(hd->Types);
+	free(hd->Sizes);
 }
 
 
@@ -31,6 +32,12 @@ void Guppy_PrintHeader(Guppy_Header *hd) {
 	printf("    [");
 	for (int64_t i = 0; i < hd->NVars; i++) {
 		printf("'%s', ", hd->Types[i]);
+	}
+	printf("'%s']\n", hd->Types[hd->NVars - 1]);
+	printf("Sizes:\n");
+	printf("    [");
+	for (int64_t i = 0; i < hd->NVars; i++) {
+		printf("'%"PRId64"', ", hd->Sizes[i]);
 	}
 	printf("'%s']\n", hd->Types[hd->NVars - 1]);
 	printf("Span:\n    [%"PRId64", %"PRId64", %"PRId64"]\n",

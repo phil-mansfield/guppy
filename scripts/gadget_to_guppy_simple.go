@@ -11,28 +11,39 @@ import (
 	"github.com/phil-mansfield/guppy/lib/particles"
 	"github.com/phil-mansfield/guppy/lib/snapio"
 	"github.com/phil-mansfield/guppy/lib/thread"
+	"runtime"
 )
 
 var (
-	XDelta = 0.00125
-	VDelta = 1.25
+	XDelta = 0.0024
+	VDelta = 34.41/8
 
-	SimPath = "/data/mansfield/simulations/Erebos_CBol_L63_N256/particles/raw"
-	GuppyPath = "/data/mansfield/simulations/Erebos_CBol_L63_N256/particles/guppy/dx1.25_dv1.25_3"
-	SnapshotFormat = "snapdir_%04d"
-	InputFileFormat = "snapshot_%04d.%d"
-	OutputFileFormat = "snapshot_%04d.%d.gup"
+	//MultNames = []string{"d2", "m2", "m4"}
+	//Mults = []float64{0.5, 2.0, 4.0}
+	MultNames = []string{"nil"}
+	Mults = []float64{1.0}
 
-	NFiles = 16
-	Np = 256
-	NBlocks = 4
-	Snaps = []int{189, 190}
+	SimPath = "/data/mansfield/simulations/Erebos_CBol_L125/particles/raw"
+	GuppyPathFmt = "/data/mansfield/simulations/Erebos_CBol_L125/particles/guppy/fid_%s"
+	SnapshotFormat = "snapdir_%03d"
+	InputFileFormat = "snapshot_%03d.%d"
+	OutputFileFormat = "snapshot_%03d.%d.gup"
+
+	NFiles = 512
+	//NFiles = 64
+	Np = 1024
+	NBlocks = 8
+	//Snaps = []int{0, 20, 40, 60, 80, 100}
+	//Snaps = []int{77, 87, 100}
+	//Snaps = []int{30, 31, 32, 33}
+	Snaps = []int{31}
 
 	GadgetVarNames = []string{"x", "v", "id"}
 	GadgetVarTypes = []string{"v32", "v32", "u64"} 
-
+	//GadgetVarTypes = []string{"v32", "v32", "u32"} 
+	
 	Order = binary.LittleEndian
-	Workers = 1
+	Workers = 8
 )
 
 func GadgetFileName(snap, i int) string {
@@ -40,14 +51,14 @@ func GadgetFileName(snap, i int) string {
 	return fmt.Sprintf(format, snap, snap, i)
 }
 
-func GuppyFileName(snap, i int) string {
-	format := path.Join(GuppyPath, SnapshotFormat, OutputFileFormat)
-	return fmt.Sprintf(format, snap, snap, i)
+func GuppyFileName(multName string, snap, i int) string {
+	format := path.Join(GuppyPathFmt, SnapshotFormat, OutputFileFormat)
+	return fmt.Sprintf(format, multName, snap, snap, i)
 }
 
-func OutputDir(snap int) string {
-	format := path.Join(GuppyPath, SnapshotFormat)
-	return fmt.Sprintf(format, snap)
+func OutputDir(multName string, snap int) string {
+	format := path.Join(GuppyPathFmt, SnapshotFormat)
+	return fmt.Sprintf(format, multName, snap)
 }
 
 func GetGadgetArrays(
@@ -77,8 +88,16 @@ func GetGadgetArrays(
 	if !ok { panic("Type error on x") }
 	v, ok = vIntr.([][3]float32)
 	if !ok { panic("Type error on v") }
-	id, ok = idIntr.([]uint64)
-	if !ok { panic("Type error on id") }
+	if id32, ok := idIntr.([]uint32); ok {
+		runtime.GC()
+		id = make([]uint64, len(id32))
+		for i := range id {
+			id[i] = uint64(id32[i])
+		}
+	} else { 
+		id, ok = idIntr.([]uint64)
+		if !ok { panic("Type error on id") }
+	}
 
 	return x, v, id
 }
@@ -106,8 +125,8 @@ func LoadGadgetFile(
 
 }
 
-func BaseHeader() snapio.Header {
-	baseFile := GadgetFileName(Snaps[len(Snaps) - 1], 0)
+func BaseHeader(snap int) snapio.Header {
+	baseFile := GadgetFileName(snap, 0)
 	reader, err := snapio.NewLGadget2(
 		baseFile, GadgetVarNames, GadgetVarTypes, Order,
 	)
@@ -126,15 +145,15 @@ type Output struct {
 	Writer *compress.Writer
 }
 
-func OutputBuffers(Nb int) *Output {
+func OutputBuffers(Nb int, mult float64) *Output {
 	span := [3]int{ Nb, Nb, Nb }
 	methodMap := map[string]compress.Method{
-		"x[0]": compress.NewLagrangianDelta(span, XDelta),
-		"x[1]": compress.NewLagrangianDelta(span, XDelta),
-		"x[2]": compress.NewLagrangianDelta(span, XDelta),
-		"v[0]": compress.NewLagrangianDelta(span, VDelta),
-		"v[1]": compress.NewLagrangianDelta(span, VDelta),
-		"v[2]": compress.NewLagrangianDelta(span, VDelta),
+		"x{0}": compress.NewLagrangianDelta(span, XDelta*mult),
+		"x{1}": compress.NewLagrangianDelta(span, XDelta*mult),
+		"x{2}": compress.NewLagrangianDelta(span, XDelta*mult),
+		"v{0}": compress.NewLagrangianDelta(span, VDelta*mult),
+		"v{1}": compress.NewLagrangianDelta(span, VDelta*mult),
+		"v{2}": compress.NewLagrangianDelta(span, VDelta*mult),
 	}
 
 	return &Output{
@@ -166,7 +185,7 @@ func WriteField(
 		}
 	}
 
-	componentName := fmt.Sprintf("%s[%d]", varName, dim)
+	componentName := fmt.Sprintf("%s{%d}", varName, dim)
 	component := particles.NewFloat32(componentName, output.Data)
 
 	err := output.Writer.AddField(component, output.Methods[componentName])
@@ -176,25 +195,33 @@ func WriteField(
 func WriteToGuppy(
 	snap, i int, xGrid, vGrid [][3]float32,
 	origHd snapio.Header, output *Output,
+	multName string,
 ) {
-	outName := GuppyFileName(snap, i)
+	outName := GuppyFileName(multName, snap, i)
 
 	Nb := Np / NBlocks		
-	offsetID := uint64(Nb*Nb*Nb * i)
 	span := [3]int64{ int64(Nb), int64(Nb), int64(Nb) }
-
+	bx := i % NBlocks
+	by := (i / NBlocks)
+	bz := i / (NBlocks * NBlocks)
+	offset := [3]int64{ int64(Nb*bx), int64(Nb*by), int64(Nb*bz) }
+	totSpan := [3]int64{ int64(Np), int64(Np), int64(Np) }
 	
 	output.Writer = compress.NewWriter(
-		outName, origHd, offsetID, span, output.Buffer, output.B, Order,
+		outName, origHd, span, offset, totSpan,
+		output.Buffer, output.B, Order,
 	)
 
+	fmt.Println(outName)
 	for dim := 0; dim < 3; dim++ {
 		WriteField("x", xGrid, dim, i, Nb, output)
 	}
+	fmt.Println("WARNING: DEBUGGING BREAK 2")
+	return
+
 	for dim := 0; dim < 3; dim++ {
 		WriteField("v", vGrid, dim, i, Nb, output)
 	}
-
 	var err error
 	output.B, err = output.Writer.Flush()
 	if err != nil { panic(err.Error()) }
@@ -205,8 +232,19 @@ func main() {
 
 	xGrid := make([][3]float32, Np*Np*Np)
 	vGrid := make([][3]float32, Np*Np*Np)
-	baseHd := BaseHeader()
 
+	log.Println("Finished setup.")
+	
+	for i := range Mults {
+		CompressSimulation(xGrid, vGrid, Mults[i], MultNames[i])
+	}
+}
+
+func CompressSimulation(
+	xGrid, vGrid [][3]float32,
+	mult float64, multName string,
+) {
+	baseHd := BaseHeader(Snaps[0])
 	Nb := Np / NBlocks
 
 	outBufs := make([]*Output, Workers)
@@ -215,13 +253,13 @@ func main() {
 		var err error
 		sioBufs[i], err = snapio.NewBuffer(baseHd)
 		if err != nil { panic(err.Error()) }
-		outBufs[i] = OutputBuffers(Nb)
+		outBufs[i] = OutputBuffers(Nb, mult)
 	}
 
-	log.Println("Finished setup.")
-	
 	for _, snap := range Snaps {
 		log.Println("Analyzing snap", snap)
+
+		ghd := BaseHeader(snap)
 
 		log.Println("Running SplitArray(LoadGadgetFile)")
 		thread.SplitArray(NFiles, Workers, func(w, start, end, step int) {
@@ -231,7 +269,7 @@ func main() {
 			}
 		})
 
-		err := os.Mkdir(OutputDir(snap), 0755) 
+		err := os.MkdirAll(OutputDir(multName, snap), 0755) 
 		if err != nil && !strings.Contains(err.Error(), "file exists") {
 			panic(err.Error())
 		}
@@ -241,7 +279,13 @@ func main() {
 		thread.SplitArray(nGuppyFiles, Workers, func(w, start, end, step int) {
 			output := outBufs[w]
 			for i := start; i < end; i++ {
-				WriteToGuppy(snap, i, xGrid, vGrid, baseHd, output)
+				if i != 0 {
+					return
+				} else {
+					fmt.Println("WARNING: DEBUGGING BREAK 1")
+				}
+				WriteToGuppy(snap, i, xGrid, vGrid,
+					ghd, output, multName)
 			}
 		})
 	}
