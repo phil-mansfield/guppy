@@ -162,11 +162,19 @@ func Dequantize(
 	typeFlag TypeFlag, buf *Buffer,
 ) particles.Field {
 
-	for i := range q {
-		if q[i] < 0 {
-			q[i] += qPeriod
-		} else if q[i] >= qPeriod {
-			q[i] -= qPeriod
+	if qPeriod > 0 {
+		for i := range q {
+			// This can be slow on some systems, where for jumps backwards
+			// always predict true. It's neccessary because you have no
+			// garuantee that the deltas add up to a value inside the box.
+			// If this ends up being slow, you'll need to refactor and do this
+			// check in-line with the delta calculation.
+			for q[i] < 0 {
+				q[i] += qPeriod
+			}
+			for q[i] >= qPeriod {
+				q[i] -= qPeriod
+			}
 		}
 	}
 
@@ -305,24 +313,29 @@ func (m *LagrangianDelta) Compress(
 
 	typeFlag := GetTypeFlag(f.Data())
 
-	qPeriod := int64(math.Ceil(m.period/m.delta))
+	qPeriod := int64(0)
+	if m.period > 0 || m.delta > 0 {
+		qPeriod = int64(math.Ceil(m.period/m.delta))
+	}
+	
 	Quantize(f, m.delta, qPeriod, buf.q)
-
+	
 	firstDim := ChooseFirstDim(f.Name())
 	slices := BlockToSlices(m.span, firstDim, buf.q, buf.i64)
 	offsets := SliceOffsets(slices)
-
+	
 	// Replace each slice with its deltas. Remember, this modifies buf.i64.
 	for i := range slices {
 		DeltaEncode(offsets[i], qPeriod, slices[i], slices[i])
 	}
-
+	
 	stats := &DeltaStats{ }
 	stats.Load(buf.i64)
 	mid := stats.Window(256)
 	rot := stats.NeededRotation(mid)
+	
 	RotateEncode(buf.i64, rot)
-
+	
 	fmt.Printf("# mid = %d, rot = %d\n", mid, rot)
 
 	hd := &lagrangianDeltaHeader{ typeFlag, buf.q[0], rot }
@@ -361,7 +374,7 @@ type lagrangianDeltaHeader struct {
 // (see documentaion for the Method interface)
 func (m *LagrangianDelta) Decompress(
 	buf *Buffer, rd io.Reader, name string,
-) (particles.Field, error) {
+) (particles.Field, error) {	
 	buf.Resize(m.nTot)
 
 	hd := &lagrangianDeltaHeader{ }
@@ -375,12 +388,17 @@ func (m *LagrangianDelta) Decompress(
 	for i := range buf.i64 { buf.i64[i] = 0 }
 	buf.b, buf.bZStd, err = ReadCompressedIntsZStd(
 		rd, buf.b, buf.bZStd, buf.i64)
+
+	
 	if err != nil {
 		return nil, fmt.Errorf("zlib error while reading block '%s': %s",
 			name, err.Error())
 	}
 
-	qPeriod := int64(math.Ceil(m.period/m.delta))
+	qPeriod := int64(0)
+	if m.period > 0 && m.delta > 0 {
+		qPeriod = int64(math.Ceil(m.period/m.delta))
+	}
 
 	// Invert the procedures used in Compress.
 	slices := MakeDeltaSlices(m.span, firstDim, buf.i64)

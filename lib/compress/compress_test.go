@@ -201,6 +201,9 @@ func TestLagrangianDelta(t *testing.T) {
 		lastTestData[i] = rand.Float64()
 	}
 
+	smallTest := make([]float64, 47)
+	for i := range smallTest { smallTest[i] = rand.Float64() }
+
 	tests := []struct{
 		span [3]int
 		name string
@@ -208,17 +211,20 @@ func TestLagrangianDelta(t *testing.T) {
 		data interface{}
 		period float64
 	} {
-		{ [3]int{2, 2, 2}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
-		{ [3]int{1, 1, 8}, "meow", 0, []uint32{1, 2, 3, 4, 5, 6, 7, 0}, 0 },
-		{ [3]int{1, 8, 1}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
-		{ [3]int{8, 1, 1}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
-		{ [3]int{2, 2, 2}, "meow", 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
-		{ [3]int{2, 2, 2}, "meow", 1e-4, []float32{0, 1, 2, 4, 4, 5, 4, 0}, 0 },
-		{ [3]int{2, 2, 2}, "meow", 1e-4, []float64{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
-		{ [3]int{32, 16, 8}, "meow", 1e-4, lastTestData, 0 },
+		/*
+		{ [3]int{2, 2, 2}, "meow0", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
+		{ [3]int{1, 1, 8}, "meow1", 0, []uint32{1, 2, 3, 4, 5, 6, 7, 0}, 0 },
+		{ [3]int{1, 8, 1}, "meow2", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
+		{ [3]int{8, 1, 1}, "meow3", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
+		{ [3]int{2, 2, 2}, "meow4", 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
+		{ [3]int{2, 2, 2}, "meow5", 1e-4, []float32{0, 1, 2, 4, 4, 5, 4, 0}, 0},
+		{ [3]int{2, 2, 2}, "meow6", 1e-4, []float64{0, 1, 2, 4, 4, 5, 6, 0}, 0},
+		{ [3]int{32, 16, 8}, "meow7", 1e-4, lastTestData, 0 },
 		{ [3]int{32, 16, 8}, "meow[0]", 1e-4, lastTestData, 1.0 },
 		{ [3]int{32, 16, 8}, "meow[1]", 1e-4, lastTestData, 1.0 },
 		{ [3]int{32, 16, 8}, "meow[2]", 1e-4, lastTestData, 1.0 },
+		*/
+		{ [3]int{1, 1, 47}, "small", 1e-4, smallTest, 1.0 },
 	}
 
 	buf := NewBuffer(0)
@@ -296,7 +302,8 @@ func TestLagrangianDelta(t *testing.T) {
 			dataEqual = eq.Float64sEps(d, x64, tests[i].delta)
 		}
 		if !dataEqual {
-			t.Errorf("%d) Compressed the array %v, but it decompressed to %v.",
+			//t.Errorf("%d) Decompression failed", i)
+			t.Errorf("%d) Compressed the array \n%v\n, but it decompressed to \n%v\n.",
 				i, tests[i].data, x)
 		}
 	}
