@@ -323,6 +323,8 @@ func (m *LagrangianDelta) Compress(
 	rot := stats.NeededRotation(mid)
 	RotateEncode(buf.i64, rot)
 
+	fmt.Printf("# mid = %d, rot = %d\n", mid, rot)
+
 	hd := &lagrangianDeltaHeader{ typeFlag, buf.q[0], rot }
 	err := binary.Write(wr, m.order, hd)
 	if err != nil { return err }
