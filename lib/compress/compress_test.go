@@ -211,7 +211,6 @@ func TestLagrangianDelta(t *testing.T) {
 		data interface{}
 		period float64
 	} {
-		/*
 		{ [3]int{2, 2, 2}, "meow0", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
 		{ [3]int{1, 1, 8}, "meow1", 0, []uint32{1, 2, 3, 4, 5, 6, 7, 0}, 0 },
 		{ [3]int{1, 8, 1}, "meow2", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
@@ -223,7 +222,6 @@ func TestLagrangianDelta(t *testing.T) {
 		{ [3]int{32, 16, 8}, "meow[0]", 1e-4, lastTestData, 1.0 },
 		{ [3]int{32, 16, 8}, "meow[1]", 1e-4, lastTestData, 1.0 },
 		{ [3]int{32, 16, 8}, "meow[2]", 1e-4, lastTestData, 1.0 },
-		*/
 		{ [3]int{1, 1, 47}, "small", 1e-4, smallTest, 1.0 },
 	}
 
@@ -249,6 +247,9 @@ func TestLagrangianDelta(t *testing.T) {
 
 		rd := bytes.NewReader(wr.Bytes())
 		mOut := &LagrangianDelta{ }
+		// For historical reasons, LagrangianDelta doesn't store the period in
+		// the header: it gets it from the global file header.
+		mOut.period = tests[i].period
 
 		err = mOut.ReadInfo(order, rd)
 		if err != nil {

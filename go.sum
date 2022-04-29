@@ -19,8 +19,8 @@ github.com/jung-kurt/gofpdf v1.0.0/go.mod h1:7Id9E/uU8ce6rXgefFLlgrJj/GYY22cpxn+
 github.com/jung-kurt/gofpdf v1.0.3-0.20190309125859-24315acbbda5/go.mod h1:7Id9E/uU8ce6rXgefFLlgrJj/GYY22cpxn+r32jIOes=
 github.com/phil-mansfield/gotetra v0.0.0-20200929220940-e55459c21bdf h1:LdO95g7dpROVnVRujDQeU0FqUDCz59O4z3O9R4GAbJc=
 github.com/phil-mansfield/gotetra v0.0.0-20200929220940-e55459c21bdf/go.mod h1:ZmHLTRkkGNqc6uoF3LKphe2b3NVSEGVAY4JFQ9RvwMY=
-github.com/phil-mansfield/gravitree v1.0.0 h1:yAOwzlA29qRcUMNEn3akk8jmKfFFaKBlf9y3+cE32zo=
-github.com/phil-mansfield/gravitree v1.0.0/go.mod h1:DE7L63zZeR4pqVjmV0u+r1RdPqlNrWlwLwFshhSeALk=
+github.com/phil-mansfield/gravitree v1.0.1 h1:LE0p63lCKxxaIM3IhG+G4isNUxFjMgTwvwxOmCDM0ys=
+github.com/phil-mansfield/gravitree v1.0.1/go.mod h1:YK1w+rBRlt1ByfgWNvBwyHHSsDohsglfqJlgKGG8m+M=
 github.com/phpdave11/gofpdf v1.4.2/go.mod h1:zpO6xFn9yxo3YLyMvW8HcKWVdbNqgIfOOp2dXMnm1mY=
 github.com/phpdave11/gofpdi v1.0.12/go.mod h1:vBmVV0Do6hSBHC8uKUQ71JGW+ZGQq74llk/7bXwjDoI=
 github.com/pkg/errors v0.8.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
@@ -54,8 +54,6 @@ golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a/go.mod h1:STP8DvDyc/dI5b8T5h
 golang.org/x/sys v0.0.0-20190312061237-fead79001313/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20190412213103-97732733099d/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
 golang.org/x/sys v0.0.0-20210304124612-50617c2ba197/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
-golang.org/x/sys v0.0.0-20211006194710-c8a6f5223071 h1:PjhxBct4MZii8FFR8+oeS7QOvxKOTZXgk63EU2XpfJE=
-golang.org/x/sys v0.0.0-20211006194710-c8a6f5223071/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/text v0.3.0/go.mod h1:NqM8EUOU14njkJ3fqMW+pc6Ldnwhi/IjpwHt7yyuwOQ=
 golang.org/x/text v0.3.5/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
 golang.org/x/tools v0.0.0-20180525024113-a5b4c53f6e8b/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=

@@ -347,6 +347,12 @@ func (rd *Reader) ReadField(name string) (particles.Field, error) {
 
 	// Select the method used
 	method := selectMethod(rd.methodFlags[i])
+	switch t := method.(type) {
+	case *LagrangianDelta:
+		if name == "x" || name == "x{0}" || name == "x{1}" || name == "x{2}" {
+			t.period = rd.L
+		}
+	}
 
 	err = method.ReadInfo(rd.order, rd.f)
 	if err != nil { return nil, err}

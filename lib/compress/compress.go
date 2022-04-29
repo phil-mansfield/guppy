@@ -274,8 +274,6 @@ func (m *LagrangianDelta) WriteInfo(wr io.Writer) error {
 	err = binary.Write(wr, m.order, span64)
 	if err != nil { return err }
 	err = binary.Write(wr, m.order, m.delta)
-	if err != nil { return err }
-	err = binary.Write(wr, m.order, m.period)
 	return err
 }
 
@@ -296,8 +294,6 @@ func (m *LagrangianDelta) ReadInfo(order binary.ByteOrder, rd io.Reader) error {
 	err = binary.Read(rd, m.order, &span64)
 	if err != nil { return err }
 	err = binary.Read(rd, m.order, &m.delta)
-	if err != nil {return err }
-	err = binary.Read(rd, m.order, &m.period)
 	if err != nil {return err }
 
 	m.span = [3]int{ int(span64[0]), int(span64[1]), int(span64[2]) }
@@ -335,8 +331,6 @@ func (m *LagrangianDelta) Compress(
 	rot := stats.NeededRotation(mid)
 	
 	RotateEncode(buf.i64, rot)
-	
-	fmt.Printf("# mid = %d, rot = %d\n", mid, rot)
 
 	hd := &lagrangianDeltaHeader{ typeFlag, buf.q[0], rot }
 	err := binary.Write(wr, m.order, hd)
@@ -405,7 +399,6 @@ func (m *LagrangianDelta) Decompress(
 	RotateDecode(buf.i64, hd.Rot)
 	DeltaDecodeFromSlices(hd.FirstOffset, slices)
 	SlicesToBlock(m.span, firstDim, slices, buf.q)
-
 	return Dequantize(name, buf.q, m.delta, qPeriod, hd.TypeFlag, buf), nil
 }
 
@@ -508,10 +501,6 @@ func WriteCompressedIntsZStd(
 			" but quantized int array had length %d.", len(b), len(q)))
 	}
 
-	peek, ok := wr.(*bytes.Buffer)
-	var prev int
-	if ok { prev = peek.Len() }
-
 	for i := 0; i < 8; i++ {
 		// We need to create a new Writer each loop so a different codex is
 		// used for the different columns, letting the high-significance bits
@@ -527,14 +516,7 @@ func WriteCompressedIntsZStd(
 		
 		_, err = wr.Write(buf)
 		if err != nil { return nil, err }
-
-		if ok {
-			next := peek.Len()
-			fmt.Println("col", i, next - prev)
-			prev = next
-		}
 	}
-	if ok { fmt.Println() }
 	
 	// Resize so I don't accidentally do something dumb with the buffer.
 	return buf[:0], nil

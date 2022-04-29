@@ -15,32 +15,29 @@ import (
 )
 
 var (
-	XDelta = 0.0024
-	VDelta = 34.41/8
+	XDelta = 0.001
+	VDelta = 17.20/8
 
-	//MultNames = []string{"d2", "m2", "m4"}
-	//Mults = []float64{0.5, 2.0, 4.0}
-	MultNames = []string{"nil"}
-	Mults = []float64{1.0}
+	MultNames = []string{"d8", "x_d2", "x", "x_m2", "x_m4",
+		"v_d2", "v", "v_m2", "v_m4", "v_m8"}
+	XMults = []float64{0.125,   0.5,   1.0,   2.0,   4.0,
+		0.125, 0.125, 0.125, 0.125, 0.125}
+	VMults = []float64{0.125, 0.125, 0.125, 0.125, 0.125,
+		  0.5,   1.0,   2.0,   4.0,   8.0}
 
-	SimPath = "/data/mansfield/simulations/Erebos_CBol_L125/particles/raw"
-	GuppyPathFmt = "/data/mansfield/simulations/Erebos_CBol_L125/particles/guppy/fid_%s"
+	SimPath = "/data/mansfield/simulations/Erebos_CBol_L63/particles/raw"
+	GuppyPathFmt = "/data/mansfield/simulations/Erebos_CBol_L63/particles/guppy/fid_%s"
 	SnapshotFormat = "snapdir_%03d"
 	InputFileFormat = "snapshot_%03d.%d"
 	OutputFileFormat = "snapshot_%03d.%d.gup"
 
 	NFiles = 512
-	//NFiles = 64
 	Np = 1024
 	NBlocks = 8
-	//Snaps = []int{0, 20, 40, 60, 80, 100}
-	//Snaps = []int{77, 87, 100}
-	//Snaps = []int{30, 31, 32, 33}
-	Snaps = []int{31}
+	Snaps = []int{100}
 
 	GadgetVarNames = []string{"x", "v", "id"}
 	GadgetVarTypes = []string{"v32", "v32", "u64"} 
-	//GadgetVarTypes = []string{"v32", "v32", "u32"} 
 	
 	Order = binary.LittleEndian
 	Workers = 8
@@ -145,15 +142,15 @@ type Output struct {
 	Writer *compress.Writer
 }
 
-func OutputBuffers(Nb int, mult float64) *Output {
+func OutputBuffers(Nb int, xMult, vMult, L float64) *Output {
 	span := [3]int{ Nb, Nb, Nb }
 	methodMap := map[string]compress.Method{
-		"x{0}": compress.NewLagrangianDelta(span, XDelta*mult),
-		"x{1}": compress.NewLagrangianDelta(span, XDelta*mult),
-		"x{2}": compress.NewLagrangianDelta(span, XDelta*mult),
-		"v{0}": compress.NewLagrangianDelta(span, VDelta*mult),
-		"v{1}": compress.NewLagrangianDelta(span, VDelta*mult),
-		"v{2}": compress.NewLagrangianDelta(span, VDelta*mult),
+		"x{0}": compress.NewLagrangianDelta(span, XDelta*xMult, L),
+		"x{1}": compress.NewLagrangianDelta(span, XDelta*xMult, L),
+		"x{2}": compress.NewLagrangianDelta(span, XDelta*xMult, L),
+		"v{0}": compress.NewLagrangianDelta(span, VDelta*vMult, 0),
+		"v{1}": compress.NewLagrangianDelta(span, VDelta*vMult, 0),
+		"v{2}": compress.NewLagrangianDelta(span, VDelta*vMult, 0),
 	}
 
 	return &Output{
@@ -202,7 +199,7 @@ func WriteToGuppy(
 	Nb := Np / NBlocks		
 	span := [3]int64{ int64(Nb), int64(Nb), int64(Nb) }
 	bx := i % NBlocks
-	by := (i / NBlocks)
+	by := (i / NBlocks) % NBlocks
 	bz := i / (NBlocks * NBlocks)
 	offset := [3]int64{ int64(Nb*bx), int64(Nb*by), int64(Nb*bz) }
 	totSpan := [3]int64{ int64(Np), int64(Np), int64(Np) }
@@ -212,12 +209,9 @@ func WriteToGuppy(
 		output.Buffer, output.B, Order,
 	)
 
-	fmt.Println(outName)
 	for dim := 0; dim < 3; dim++ {
 		WriteField("x", xGrid, dim, i, Nb, output)
 	}
-	fmt.Println("WARNING: DEBUGGING BREAK 2")
-	return
 
 	for dim := 0; dim < 3; dim++ {
 		WriteField("v", vGrid, dim, i, Nb, output)
@@ -230,19 +224,24 @@ func WriteToGuppy(
 func main() {
 	thread.Set(Workers)
 
+	if len(Snaps) == 0 {
+		Snaps = make([]int, 101)
+		for i := range Snaps { Snaps[i] = i }
+	}
+
 	xGrid := make([][3]float32, Np*Np*Np)
 	vGrid := make([][3]float32, Np*Np*Np)
 
 	log.Println("Finished setup.")
 	
-	for i := range Mults {
-		CompressSimulation(xGrid, vGrid, Mults[i], MultNames[i])
+	for i := range XMults {
+		CompressSimulation(xGrid, vGrid, XMults[i], VMults[i], MultNames[i])
 	}
 }
 
 func CompressSimulation(
 	xGrid, vGrid [][3]float32,
-	mult float64, multName string,
+	xMult, vMult float64, multName string,
 ) {
 	baseHd := BaseHeader(Snaps[0])
 	Nb := Np / NBlocks
@@ -253,7 +252,7 @@ func CompressSimulation(
 		var err error
 		sioBufs[i], err = snapio.NewBuffer(baseHd)
 		if err != nil { panic(err.Error()) }
-		outBufs[i] = OutputBuffers(Nb, mult)
+		outBufs[i] = OutputBuffers(Nb, xMult, vMult, baseHd.L())
 	}
 
 	for _, snap := range Snaps {
@@ -279,11 +278,6 @@ func CompressSimulation(
 		thread.SplitArray(nGuppyFiles, Workers, func(w, start, end, step int) {
 			output := outBufs[w]
 			for i := start; i < end; i++ {
-				if i != 0 {
-					return
-				} else {
-					fmt.Println("WARNING: DEBUGGING BREAK 1")
-				}
 				WriteToGuppy(snap, i, xGrid, vGrid,
 					ghd, output, multName)
 			}
