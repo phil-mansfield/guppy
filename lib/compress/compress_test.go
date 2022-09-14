@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"math/rand"
 	"testing"
-
+	
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
 )
@@ -45,27 +45,28 @@ func TestBuffer(t *testing.T) {
 	}
 }
 
-func TestReadCompressedInts(t *testing.T) {
+func TestReadCompressedIntsZLib(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{ })
 
 	byteHelloWorld := []byte("hello, world\n")
 	intHelloWorld := make([]int64, len(byteHelloWorld))
 	for i := range intHelloWorld { intHelloWorld[i] = int64(byteHelloWorld[i]) }
 
-	tests := [][]int64{ { }, {1},  {0, 1, 2, 3, 4, 5}, intHelloWorld}
+	tests := [][]int64{ { }, {int64(0x1111111111111111)}, {0}, {1}, {1, 0},
+		{0, 1, 2, 3, 4, 5}, intHelloWorld}
 
 	for i := range tests {
 		bIn := make([]byte, len(tests[i]))
 		bOut := make([]byte, len(tests[i]))
 		out := make([]int64, len(tests[i]))
 
-		err := WriteCompressedInts(tests[i], bIn, buf)
+		err := WriteCompressedIntsZLib(tests[i], bIn, buf)
 		if err != nil { 
 			t.Errorf(err.Error())
 			continue
 		}
-
-		bOut, err = ReadCompressedInts(buf, bOut, out)
+		
+		bOut, err = ReadCompressedIntsZLib(buf, bOut, out)
 		if err != nil { 
 			t.Errorf(err.Error())
 			continue
@@ -77,32 +78,73 @@ func TestReadCompressedInts(t *testing.T) {
 	}
 }
 
+func TestReadCompressedIntsZStd(t *testing.T) {
+	buf := bytes.NewBuffer([]byte{ })
+
+	byteHelloWorld := []byte("hello, world\n")
+	intHelloWorld := make([]int64, len(byteHelloWorld))
+	for i := range intHelloWorld { intHelloWorld[i] = int64(byteHelloWorld[i]) }
+
+	tests := [][]int64{ { }, {int64(0x1111111111111111)}, {0}, {1}, {1, 0},
+		{0, 1, 2, 3, 4, 5}, intHelloWorld}
+
+	for i := range tests {
+		bIn := make([]byte, len(tests[i]))
+		bOut := make([]byte, len(tests[i]))
+		out := make([]int64, len(tests[i]))
+
+		_, err := WriteCompressedIntsZStd(tests[i], bIn, []byte{}, buf)
+		if err != nil { 
+			t.Errorf(err.Error())
+			continue
+		}
+		
+		bOut, _, err = ReadCompressedIntsZStd(buf, bOut, []byte{}, out)
+		if err != nil { 
+			t.Errorf(err.Error())
+			continue
+		}
+
+		if !eq.Int64s(out, tests[i]) {
+			t.Errorf("%d) %d decompressed to %d.", i, tests[i], out)
+		}
+	}
+}
+
+
 func TestQuantize(t *testing.T) {
 	name := "meow"
 	
 	tests := []struct{
 		f particles.Field
 		delta float64
+		qPeriod int64
+		fTest particles.Field
 	} {
-		{particles.NewUint32(name, []uint32{ }), 0.0},
-		{particles.NewUint64(name, []uint64{ }), 0.0},
-		{particles.NewFloat32(name, []float32{ }), 0.0},
-		{particles.NewFloat64(name, []float64{ }), 0.0},
+		{particles.NewUint32(name, []uint32{ }), 0.0, 0, nil},
+		{particles.NewUint64(name, []uint64{ }), 0.0, 0, nil},
+		{particles.NewFloat32(name, []float32{ }), 0.0, 0, nil},
+		{particles.NewFloat64(name, []float64{ }), 0.0, 0, nil},
 
-		{particles.NewUint32(name, []uint32{0, 1, 2, 3, 4, 5}), 0.0},
-		{particles.NewUint64(name, []uint64{0, 0, 0, 0,0, 100000,100000}), 0.0},
+		{particles.NewUint32(name, []uint32{0, 1, 2, 3, 4, 5}), 0.0, 0, nil},
+		{particles.NewUint64(name, []uint64{0, 0, 0, 0,0, 100000,100000}),
+			0.0, 0, nil},
 		{particles.NewFloat32(name,
-			[]float32{1, 1.5, 2, 0, 4, 5.5, 6}), 1e-3},
+			[]float32{1, 1.5, 2, 0, 4, 5.5, 6}), 1e-3, 0, nil},
 		{particles.NewFloat64(name,
-			[]float64{1, 1.5, 2, 0, 4, 5.5, 6}), 1e-3},
-		{particles.NewFloat64(name, []float64{-1, -2, -3, -4}), 1e-3},
+			[]float64{1, 1.5, 2, 0, 4, 5.5, 6}), 1e-3, 0, nil},
+		{particles.NewFloat64(name, []float64{-1, -2, -3, -4}), 1e-3, 0, nil},
+		{particles.NewUint64(name, []uint64{0, 3, 5, 10}), 0.0, 8, 
+			particles.NewUint64(name, []uint64{0, 3, 5, 2}) },
 	}
 
 	buf := NewBuffer(0)
 	
 	for i := range tests {
+		if tests[i].fTest == nil { tests[i].fTest = tests[i].f }
+
 		buf.Resize(tests[i].f.Len())
-		Quantize(tests[i].f, tests[i].delta, buf.q)
+		Quantize(tests[i].f, tests[i].delta, tests[i].qPeriod, buf.q)
 
 		var flag TypeFlag
 		switch tests[i].f.Data().(type) {
@@ -113,32 +155,32 @@ func TestQuantize(t *testing.T) {
 		default: panic("'Impossible' type configuration")
 		}
 		
-		f := Dequantize(name, buf.q, tests[i].delta, flag, buf)
+		f := Dequantize(name, buf.q, tests[i].delta, tests[i].qPeriod, flag, buf)
 
 		switch x := f.Data().(type) {
 		case []uint32:
-			y, ok := tests[i].f.Data().([]uint32)
+			y, ok := tests[i].fTest.Data().([]uint32)
 			if !ok {
 				t.Errorf("%d) output Field has type []uint32", i)
 			} else if !eq.Uint32s(x, y) {
 				t.Errorf("%d) Expected output %d, got %d.", i, y, x)
 			}
 		case []uint64:
-			y, ok := tests[i].f.Data().([]uint64)
+			y, ok := tests[i].fTest.Data().([]uint64)
 			if !ok {
 				t.Errorf("%d) output Field has type []uint64", i)
 			} else if !eq.Uint64s(x, y) {
 				t.Errorf("%d) Expected output %d, got %d.", i, y, x)
 			}
 		case []float32:
-			y, ok := tests[i].f.Data().([]float32)
+			y, ok := tests[i].fTest.Data().([]float32)
 			if !ok {
 				t.Errorf("%d) output Field has type []float32", i)
 			} else if !eq.Float32sEps(x, y, float32(tests[i].delta)) {
 				t.Errorf("%d) Expected output %f, got %f.", i, y, x)
 			}
 		case []float64:
-			y, ok := tests[i].f.Data().([]float64)
+			y, ok := tests[i].fTest.Data().([]float64)
 			if !ok {
 				t.Errorf("%d) output Field has type []float64", i)
 			} else if !eq.Float64sEps(x, y, tests[i].delta) {
@@ -159,28 +201,33 @@ func TestLagrangianDelta(t *testing.T) {
 		lastTestData[i] = rand.Float64()
 	}
 
+	smallTest := make([]float64, 47)
+	for i := range smallTest { smallTest[i] = rand.Float64() }
+
 	tests := []struct{
 		span [3]int
 		name string
 		delta float64
 		data interface{}
+		period float64
 	} {
-		{ [3]int{2, 2, 2}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{1, 1, 8}, "meow", 0, []uint32{1, 2, 3, 4, 5, 6, 7, 0} },
-		{ [3]int{1, 8, 1}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{8, 1, 1}, "meow", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{2, 2, 2}, "meow", 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{2, 2, 2}, "meow", 1e-4, []float32{0, 1, 2, 4, 4, 5, 4, 0} },
-		{ [3]int{2, 2, 2}, "meow", 1e-4, []float64{0, 1, 2, 4, 4, 5, 6, 0} },
-		{ [3]int{32, 16, 8}, "meow", 1e-4, lastTestData },
-		{ [3]int{32, 16, 8}, "meow[0]", 1e-4, lastTestData },
-		{ [3]int{32, 16, 8}, "meow[1]", 1e-4, lastTestData },
-		{ [3]int{32, 16, 8}, "meow[2]", 1e-4, lastTestData },
+		{ [3]int{2, 2, 2}, "meow0", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
+		{ [3]int{1, 1, 8}, "meow1", 0, []uint32{1, 2, 3, 4, 5, 6, 7, 0}, 0 },
+		{ [3]int{1, 8, 1}, "meow2", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
+		{ [3]int{8, 1, 1}, "meow3", 0, []uint32{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
+		{ [3]int{2, 2, 2}, "meow4", 0, []uint64{0, 1, 2, 4, 4, 5, 6, 0}, 0 },
+		{ [3]int{2, 2, 2}, "meow5", 1e-4, []float32{0, 1, 2, 4, 4, 5, 4, 0}, 0},
+		{ [3]int{2, 2, 2}, "meow6", 1e-4, []float64{0, 1, 2, 4, 4, 5, 6, 0}, 0},
+		{ [3]int{32, 16, 8}, "meow7", 1e-4, lastTestData, 0 },
+		{ [3]int{32, 16, 8}, "meow[0]", 1e-4, lastTestData, 1.0 },
+		{ [3]int{32, 16, 8}, "meow[1]", 1e-4, lastTestData, 1.0 },
+		{ [3]int{32, 16, 8}, "meow[2]", 1e-4, lastTestData, 1.0 },
+		{ [3]int{1, 1, 47}, "small", 1e-4, smallTest, 1.0 },
 	}
 
 	buf := NewBuffer(0)
 	for i := range tests {
-		m := NewLagrangianDelta(tests[i].span, tests[i].delta)
+		m := NewLagrangianDelta(tests[i].span, tests[i].delta, tests[i].period)
 		m.SetOrder(order)
 		f, err := particles.NewGenericField(tests[i].name, tests[i].data)
 		if err != nil { t.Errorf(err.Error()) }
@@ -200,6 +247,9 @@ func TestLagrangianDelta(t *testing.T) {
 
 		rd := bytes.NewReader(wr.Bytes())
 		mOut := &LagrangianDelta{ }
+		// For historical reasons, LagrangianDelta doesn't store the period in
+		// the header: it gets it from the global file header.
+		mOut.period = tests[i].period
 
 		err = mOut.ReadInfo(order, rd)
 		if err != nil {
@@ -249,10 +299,12 @@ func TestLagrangianDelta(t *testing.T) {
 			if !ok {
 				t.Errorf("%d) Decompressed array %v is not []float64.", i, x)
 			}
+
 			dataEqual = eq.Float64sEps(d, x64, tests[i].delta)
 		}
 		if !dataEqual {
-			t.Errorf("%d) Compressed the array %v, but it decompressed to %v.",
+			//t.Errorf("%d) Decompression failed", i)
+			t.Errorf("%d) Compressed the array \n%v\n, but it decompressed to \n%v\n.",
 				i, tests[i].data, x)
 		}
 	}
@@ -309,19 +361,21 @@ func TestDeltaEncode(t *testing.T) {
 	tests := []struct{
 		offset int64
 		x, out []int64
+		qPeriod int64
 	} {
-		{0, []int64{}, []int64{}},
-		{0, []int64{10}, []int64{10}},
-		{10, []int64{10}, []int64{0}},
-		{0, []int64{1, 5, 5, 10, 16, 20}, []int64{1, 4, 0, 5, 6, 4}},
-		{-10, []int64{-9, -8, 0, 1, -8, -9}, []int64{1, 1, 8, 1, -9, -1}},
+		{0, []int64{}, []int64{}, 0},
+		{0, []int64{10}, []int64{10}, 0},
+		{10, []int64{10}, []int64{0}, 0},
+		{0, []int64{1, 5, 5, 10, 16, 20}, []int64{1, 4, 0, 5, 6, 4}, 0},
+		{-10, []int64{-9, -8, 0, 1, -8, -9}, []int64{1, 1, 8, 1, -9, -1}, 0},
+		{0, []int64{ 1, 7, 0, 9 }, []int64{ 1, -4, 3, -1 }, 10},
 	}
 
 	for i := range tests {
 		x := make([]int64, len(tests[i].x))
 		for j := range x { x[j] = tests[i].x[j] }
 
-		DeltaEncode(tests[i].offset, x, x)
+		DeltaEncode(tests[i].offset, tests[i].qPeriod, x, x)
 
 		if !eq.Int64s(tests[i].out, x) {
 			t.Errorf("%d) Expected deltaEncode(offset=%d, x=%d) to " + 

@@ -1,0 +1,47 @@
+Read gadget: 0.225 
+Read guppy: 1.276 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.296s
+Read gadget: 0.205 
+Read guppy: 1.273 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.229s
+Read gadget: 0.230 
+Read guppy: 1.276 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.303s
+Read gadget: 0.215 
+Read guppy: 1.298 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.397s
+Read gadget: 0.216 
+Read guppy: 1.262 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.197s
+Read gadget: 0.208 
+Read guppy: 1.283 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.140s
+Read gadget: 0.217 
+Read guppy: 1.280 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.229s
+Read gadget: 0.224 
+Read guppy: 1.268 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.206s
+Read gadget: 0.206 
+Read guppy: 1.266 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.321s
+Read gadget: 0.226 
+Read guppy: 1.251 
+PASS
+ok  	github.com/phil-mansfield/guppy/lib/compress	26.093s
+L125_sheet000_snap_100.gadget2.dat
+L125_sheet000_snap_100.gadget2.dat.gup
+L125_sheet125_snap_100.gadget2.dat
+L125_sheet125_snap_100.gadget2.dat.gup
+L125_sheet333_snap_100.gadget2.dat
+L125_sheet333_snap_100.gadget2.dat.gup
+snapshot_023.39

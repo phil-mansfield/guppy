@@ -6,7 +6,8 @@ import (
 	"testing"
 	"fmt"
 	"bytes"
-
+	"time"
+	
 	"github.com/phil-mansfield/guppy/lib/eq"
 	"github.com/phil-mansfield/guppy/lib/particles"
 	"github.com/phil-mansfield/guppy/lib/snapio"
@@ -15,10 +16,12 @@ import (
 func TestHeader(t *testing.T) {
 	buf := bytes.NewBuffer([]byte{})
 	hd1 := &Header{
-		FixedWidthHeader{1<<8, 1<<30, [3]int64{8, 8, 8}, 15,
+		FixedWidthHeader{1<<8, 1<<30, [3]int64{8, 8, 8}, [3]int64{1, 2, 3},
+			[3]int64{100, 100, 100},
 			0.5, 0.27, 0.73, 0.70, 100.0, 3e9},
 		[]byte{5, 4, 3, 2, 1, 0}, []string{"a", "bb", "ccc", "", "eeeee"},
 		[]string{"u32", "u32", "f32", "f64", "u64"},
+		[]int64{0, 0, 0, 0, 0},
 	}
 	hd2 := *hd1
 
@@ -51,6 +54,7 @@ func TestFileSmall(t *testing.T) {
 	// of variables in the same file). But the backend still supports it.
 	span := [3]int{ 3, 4, 5 }
 	span64 := [3]int64{3, 4, 5}
+	totSpan := [3]int64{100, 100, 100}
 	n := span[0]*span[1]*span[2]
 	x0 := make([]float64, n)
 	x1 := make([]float32, n)
@@ -58,26 +62,36 @@ func TestFileSmall(t *testing.T) {
 	x3 := make([]uint32, n)
 	id := make([]uint64, n)
 
-	for i := range x0 { x0[i] = rand.Float64() - 0.5 }
+	for i := range x0 { x0[i] = rand.Float64() }
 	for i := range x1 { x1[i] = float32(rand.Float64()) - 0.5 }
 	for i := range x2 { x2[i] = uint64(rand.Intn(100)) }
 	for i := range x3 { x3[i] = uint32(rand.Intn(100)) }
 
-	idOffset := uint64(15)
-	for i := range id { id[i] = uint64(i) + idOffset }
+	idOffset := [3]int64{ 1, 2, 3 }
+	i := 0
+	for iz := int64(0); iz < 5; iz++ {
+		for iy := int64(0); iy < 4; iy++ {
+			for ix := int64(0); ix < 3; ix++ {
+				id[i] = uint64(1 + iz + idOffset[2] +
+					(iy + idOffset[1])*totSpan[2] +
+					(ix + idOffset[0])*totSpan[2]*totSpan[1])
+				i++
+			}
+		}
+	}
 
 	fields := []particles.Field{
-		particles.NewFloat64("x[0]", x0), particles.NewFloat32("x[1]", x1),
-		particles.NewUint64("x[2]", x2), particles.NewUint32("x3", x3),
+		particles.NewFloat64("x{0}", x0), particles.NewFloat32("x{1}", x1),
+		particles.NewUint64("x{2}", x2), particles.NewUint32("x3", x3),
 	}
 	deltas := []float64{ 1e-3, 1e-3, 0, 0 }
 	order := binary.LittleEndian
 
 	methods := []Method{
-		NewLagrangianDelta(span, deltas[0]),
-		NewLagrangianDelta(span, deltas[1]),
-		NewLagrangianDelta(span, deltas[2]),
-		NewLagrangianDelta(span, deltas[3]),
+		NewLagrangianDelta(span, deltas[0], 1.0),
+		NewLagrangianDelta(span, deltas[1], 0.0),
+		NewLagrangianDelta(span, deltas[2], 0.0),
+		NewLagrangianDelta(span, deltas[3], 0.0),
 	}
 
 	buf := NewBuffer(0)
@@ -91,7 +105,7 @@ func TestFileSmall(t *testing.T) {
 
 	var err error
 	wr := NewWriter("test_files/small_test.gup", fakeHd,
-		idOffset, span64, buf, b, order)
+		span64, idOffset, totSpan, buf, b, order)
 	for i := range fields {
 		err = wr.AddField(fields[i], methods[i])
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
@@ -107,7 +121,7 @@ func TestFileSmall(t *testing.T) {
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
 	names, types := rd.Names, rd.Types
-	expNames := []string{"x[0]", "x[1]", "x[2]", "x3", "id"}
+	expNames := []string{"x{0}", "x{1}", "x{2}", "x3", "id"}
  	if !eq.Strings(names, expNames) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
  	}
@@ -163,19 +177,42 @@ func TestFileSmall(t *testing.T) {
 	rd.Close()
 }
 
-func TestFileLarge(t *testing.T) {
+func TestLargeFiles(t *testing.T) {
+	fileNames := []string{
+		"../../large_test_data/L125_sheet000_snap_100.gadget2.dat",
+		"../../large_test_data/L125_sheet125_snap_100.gadget2.dat",
+		"../../large_test_data/L125_sheet333_snap_100.gadget2.dat",
+	}
+	for _, fileName := range fileNames {
+		testLargeFile(t, fileName)
+	}
+
+	fmt.Printf("Read gadget: %.3f \n", float64(dtReadGadget)*1e-9)
+	fmt.Printf("Read guppy: %.3f \n", float64(dtReadGuppy)*1e-9)
+}
+
+var (
+	dtReadGadget = int64(0)
+	dtReadGuppy = int64(0)
+)
+
+func testLargeFile(t *testing.T, fileName string) {
 	// File information
 	span := [3]int{ 128, 128, 128 }
 	span64 := [3]int64{ 128, 128, 128 }
-	fileName := "../../large_test_data/L125_sheet125_snap_100.gadget2.dat"
 	types := []string{"v32", "v32", "u32"}
 	names := []string{"x", "v", "id"}
 	order := binary.LittleEndian
+	outName := fmt.Sprintf("%s.gup", fileName)
 
 	// Read x and v
+	dtReadGadget -= time.Now().UnixNano()
+	
 	f, err := snapio.NewGadget2Cosmological(fileName, names, types, order)
 	if err != nil { t.Fatalf(err.Error()) }
 	x, v := quickRead(f, t)
+
+	dtReadGadget += time.Now().UnixNano()
 
 	xDelta := 2.4e-3
 	vDelta := 1.0
@@ -186,10 +223,10 @@ func TestFileLarge(t *testing.T) {
 	snapHd, err := f.ReadHeader()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	wr := NewWriter("../../large_test_data/large_test.gup", snapHd,
-		0, span64, buf, b, order)
-	xMethod := NewLagrangianDelta(span, xDelta)
-	vMethod := NewLagrangianDelta(span, vDelta)
+	idOffset, totSpan := [3]int64{ }, [3]int64{1024, 1024, 1024}
+	wr := NewWriter(outName, snapHd, span64,idOffset, totSpan, buf, b, order)
+	xMethod := NewLagrangianDelta(span, xDelta, 125.0)
+	vMethod := NewLagrangianDelta(span, vDelta, 0.0)
 
 	for k := 0; k < 3; k++ {
 		xx := make([]float32, len(x))
@@ -198,8 +235,8 @@ func TestFileLarge(t *testing.T) {
 		for j := range xx { xx[j] = x[j][k] }
 		for j := range vv { vv[j] = v[j][k] }
 
-		xComp := particles.NewFloat32(fmt.Sprintf("x[%d]", k), xx)
-		vComp := particles.NewFloat32(fmt.Sprintf("v[%d]", k), vv)
+		xComp := particles.NewFloat32(fmt.Sprintf("x{%d}", k), xx)
+		vComp := particles.NewFloat32(fmt.Sprintf("v{%d}", k), vv)
 
 		err = wr.AddField(xComp, xMethod)
 		if err != nil { t.Fatalf("Error in AddField('%s'): %s",
@@ -215,11 +252,13 @@ func TestFileLarge(t *testing.T) {
 	b, err = wr.Flush()
 	if err != nil { t.Fatalf(err.Error()) }
 
-	rd, err := NewReader("../../large_test_data/large_test.gup", buf, []byte{ })
+	dtReadGuppy -= time.Now().UnixNano()
+	
+	rd, err := NewReader(outName, buf, []byte{ })
 	if err != nil { t.Fatalf("Error in NewReader(): %s", err.Error()) }
 
 	names = rd.Names
-	expNames := []string{"x[0]", "v[0]", "x[1]", "v[1]", "x[2]", "v[2]", "id"}
+	expNames := []string{"x{0}", "v{0}", "x{1}", "v{1}", "x{2}", "v{2}", "id"}
 	dims := []int{ 0, 0, 1, 1, 2, 2 }
  	if !eq.Strings(names, expNames) {
  		t.Errorf("Expected Reader.Names to give %s, got %s.", expNames, names)
@@ -245,6 +284,8 @@ func TestFileLarge(t *testing.T) {
  				field.Name(), dataExp[:3], data[:3])
  		}
  	}
+
+	dtReadGuppy += time.Now().UnixNano()
  }
 
 func verboseFloat32sEps(x, y []float32, eps float32) bool {

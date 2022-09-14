@@ -83,7 +83,9 @@ func (stats *DeltaStats) Mode() int64 {
 // Window returns the center of "window" of the given size which contains
 // the maximum number of values.
 func (stats *DeltaStats) Window(size int) int64 {
-	if size >= len(stats.hist) { return int64(len(stats.hist)) / 2 }
+	if size >= len(stats.hist) {
+		return int64(len(stats.hist)) / 2 + stats.nMin
+	}
 
 	max := stats.cSum[size - 1]
 	maxFirst := 0

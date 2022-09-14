@@ -43,7 +43,6 @@
 *.pdb
 
 # Kernel Module Compile Results
-*.mod*
 *.cmd
 .tmp_versions/
 modules.order
@@ -57,3 +56,5 @@ c/read_guppy_test
 go/*.py
 go/*.txt
 go/profiles/
+lib/compress/logs
+guppy

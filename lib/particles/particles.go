@@ -236,7 +236,7 @@ type Vec32 struct {
 func NewVec32(name string, x [][3]float32) *Vec32 {
 	dimNames := [3]string{ }
 	for dim := range dimNames {
-		dimNames[dim] = fmt.Sprintf("%s[%d]", name, dim)
+		dimNames[dim] = fmt.Sprintf("%s{%d}", name, dim)
 	}
 	return &Vec32{ name, dimNames, x }
 }
@@ -288,7 +288,7 @@ type Vec64 struct {
 func NewVec64(name string, x [][3]float64) *Vec64 {
 	dimNames := [3]string{ }
 	for dim := range dimNames {
-		dimNames[dim] = fmt.Sprintf("%s[%d]", name, dim)
+		dimNames[dim] = fmt.Sprintf("%s{%d}", name, dim)
 	}
 	return &Vec64{ name, dimNames, x }
 }

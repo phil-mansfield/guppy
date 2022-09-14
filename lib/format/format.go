@@ -39,8 +39,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	
-	g_error "github.com/phil-mansfield/guppy/lib/error"
 )
 
 const (
@@ -237,10 +235,10 @@ func parseSequenceFormatToken(tok string) []int {
 		return out
 	}
 
-	g_error.Internal(
+	panic(fmt.Sprintf(
 		"Invalid sequence format token, '%s', passed isSeqeunceFormatToken()",
 		tok,
-	)
+	))
 	return nil
 }
 

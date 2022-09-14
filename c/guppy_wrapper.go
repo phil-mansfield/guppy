@@ -30,6 +30,7 @@ func ReadHeader(fileName *C.char) *C.Guppy_Header {
 	cHd.NVars = (C.int64_t)(nVars)
 	cHd.Names = (**C.char)(C.malloc(nVars*pointerSize))
 	cHd.Types = (**C.char)(C.malloc(nVars*pointerSize))
+	cHd.Szies = (*C.int64_t)(C.malloc(nVars*pointerSize))
 
 	n := len(goHd.Names)
 	// Need to convert the C pointer to a Go slice. The idea here
@@ -41,6 +42,7 @@ func ReadHeader(fileName *C.char) *C.Guppy_Header {
 	for i := range goHd.Names {
 		cNames[i] = C.CString(goHd.Names[i])
 		cTypes[i] = C.CString(goHd.Types[i])
+		cHd.Sizes[i] = (C.int64_t)(goHd.Sizes[i])
 	}
 
 	//Handle all the (much simpler!) header properties

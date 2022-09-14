@@ -46,12 +46,12 @@ type Writer struct {
 // Flush(). You can pass the same compress.Buffer each time.
 func NewWriter(
 	fname string, snapioHeader snapio.Header,
-	idOffset uint64, span [3]int64,
+	span, offset, totalSpan [3]int64,
 	buf *Buffer, b []byte, order binary.ByteOrder,
 ) *Writer {
 	header := bytes.NewBuffer([]byte{ })
 	data := bytes.NewBuffer(b[:0]) 
-	hd := convertSnapioHeader(snapioHeader, span, idOffset)
+	hd := convertSnapioHeader(snapioHeader, span, offset, totalSpan)
 
 	return &Writer{
 		*hd, fname, buf, order, []uint32{},
@@ -159,9 +159,11 @@ type FixedWidthHeader struct {
 	N, NTot int64
 	// Span gives the dimensions of the slab of particles in the file.
 	// Span[0], Span[1], and Span[2] are the x-, y-, and z- dimensions.
-	Span [3]int64
-	// IDOffset is the ID of the first particle in the file.
-	IDOffset uint64
+	// Offset gives the ID-coordinates of the particle at index zero. This
+	// allows the original IDs to be reconstructed. TotalSpan gives the span
+	// of the entire simulation volume (or the HR region if you're looking
+	// at a zoom-in).
+	Span, Offset, TotalSpan [3]int64
 	// Z, OmegaM, OmegaL, H100, L, and Mass give the redshift, Omega_m,
 	// Omega_Lambda, H0 / (100 km/s/Mpc), box width in comoving Mpc/h,
 	// and particle mass in Msun/h.
@@ -177,18 +179,19 @@ type Header struct {
 	// 64-bit unisghned integers, respectively, anf "f32"/"f64" give 32-bit
 	// and 64-bit floats, respectively.
 	Names, Types []string
+	Sizes []int64
 }
 
 func convertSnapioHeader(
-	snapioHeader snapio.Header, span [3]int64, idOffset uint64,
+	snapioHeader snapio.Header, span, offset, totalSpan [3]int64,
 ) *Header {
 	n := span[0]*span[1]*span[2]
 	return &Header{
-		FixedWidthHeader{n, snapioHeader.NTot(), span, idOffset,
+		FixedWidthHeader{n, snapioHeader.NTot(), span, offset, totalSpan,
 			snapioHeader.Z(), snapioHeader.OmegaM(),
 			snapioHeader.OmegaL(), snapioHeader.H100(),
 			snapioHeader.L(), snapioHeader.Mass()},
-		snapioHeader.ToBytes(), []string{}, []string{},
+		snapioHeader.ToBytes(), []string{}, []string{}, []int64{},
 	}	
 }
 
@@ -205,6 +208,7 @@ func (hd *Header) read(f io.Reader, order binary.ByteOrder) error {
 	var nFields uint32
 	if err := binary.Read(f, order, &nFields); err != nil { return err }
 	hd.Names, hd.Types = make([]string, nFields+1), make([]string, nFields+1)
+	hd.Sizes = make([]int64, nFields+1)
 
 	nNames := make([]uint32, nFields)
 	if err := binary.Read(f, order, nNames); err != nil { return err }
@@ -303,13 +307,20 @@ func NewReader(
 	if err := binary.Read(f, order, rd.methodFlags); err != nil {
 		return nil, err
 	}
+
 	if err := binary.Read(f, order, rd.headerEdges); err != nil {
 		return nil, err
 	}
+
 	if err := binary.Read(f, order, rd.dataEdges); err != nil {
 		return nil, err
 	}
 	
+	for i := 0; i < len(rd.Header.Sizes) - 1; i++ {
+		rd.Header.Sizes[i] = (rd.dataEdges[i+1] - rd.dataEdges[i]) +
+			(rd.headerEdges[i+1] - rd.headerEdges[i])
+	}
+
 	return rd, err
 }
 
@@ -336,6 +347,12 @@ func (rd *Reader) ReadField(name string) (particles.Field, error) {
 
 	// Select the method used
 	method := selectMethod(rd.methodFlags[i])
+	switch t := method.(type) {
+	case *LagrangianDelta:
+		if name == "x" || name == "x{0}" || name == "x{1}" || name == "x{2}" {
+			t.period = rd.L
+		}
+	}
 
 	err = method.ReadInfo(rd.order, rd.f)
 	if err != nil { return nil, err}
@@ -359,8 +376,16 @@ func (rd *Reader) ReadField(name string) (particles.Field, error) {
 func (rd *Reader) readID() (particles.Field, error) {
 	rd.buf.Resize(int(rd.N))
 	ids := rd.buf.u64
-	for i := range ids {
-		ids[i] = uint64(i) + rd.IDOffset
+
+	for i := int64(0); i < int64(len(ids)); i++ {
+		ix := i % rd.Span[0]
+		iy := (i / rd.Span[0]) % rd.Span[1]
+		iz := i / (rd.Span[0] * rd.Span[1])
+		// Same as Gadget-2.
+		ids[i] = uint64(1 +
+			(iz + rd.Offset[2]) +
+			(iy + rd.Offset[1])*rd.TotalSpan[2] +
+			(ix + rd.Offset[0])*(rd.TotalSpan[2]*rd.TotalSpan[1]))
 	}
 
 	return particles.NewUint64("id", ids), nil
