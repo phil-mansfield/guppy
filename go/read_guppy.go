@@ -69,36 +69,34 @@ func newWorker() *worker {
 
 // getWorker retrieves the buffer space associated with the given
 // worker ID and handles mutex ownership. If -1 is passed to this function,
-// a new worker is allocated.
-func getWorker(workerID int) *worker {
+// a new worker is allocated. The index of the worker is also returned.
+func getWorker(workerID int) (*worker, int) {
 	if workerID == - 1 {
-		return newWorker()
+		return newWorker(), -1
 	} else if workerID == -2 {
 		readCounterMutex.Lock()
+		defer readCounterMutex.Unlock()
 		currentCounter := readCounter
 		readCounter++
-		readCounterMutex.Unlock()
 
 		return getWorker(currentCounter % len(workers))
-	} else if workerID < -1 || workerID >= len(workers) {
+	} else if workerID < -2 || workerID >= len(workers) {
 		panic(fmt.Sprintf("Cannot use worker %d for nWorkers = %d",
 			workerID, len(workers)))
 	} else {
 		mutexes[workerID].Lock()
-		return workers[workerID]
-
+		return workers[workerID] , workerID
 	}
 }
 
-func finishWorker(w *worker) {
-	if w.index != -1 {
-		mutexes[w.index].Unlock()
-	}
+func finishWorker(workerIdx int) {
+	if workerIdx != -1 {
+		mutexes[workerIdx].Unlock()
 }
 
 // ReadHeader returns the header of a given file.
 func ReadHeader(fileName string) *Header {
-	worker := getWorker(-1)
+	worker, _ := getWorker(-1)
 	rd, err := compress.NewReader(fileName, worker.buf, worker.midBuf)
 	if err != nil {
 		panic(fmt.Sprintf("Guppy encountered an error while opening and " + 
@@ -138,8 +136,9 @@ func ReadHeader(fileName string) *Header {
 // read into the X field, "v[0]", "v[1]", and "v[2]" into the V field and "id"
 // into the ID field.
 func ReadVar(fileName, name string, workerID int, buf interface{}) {
+	//flag := string([]byte{fileName[len(fileName) - 5]})
 	// Allocated underlying buffers.
-	worker := getWorker(workerID)
+	worker, workerIdx := getWorker(workerID)
 	rd, err := compress.NewReader(fileName, worker.buf, worker.midBuf)
 	if err != nil {
 		panic(fmt.Sprintf("Guppy encountered an error while opening and " + 
@@ -156,7 +155,7 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 	case []float64: readFloat64(rd, name, x)
 	case []uint32: readUint32(rd, name, x)
 	case []uint64: readUint64(rd, name, x)
-	case []lib.RockstarParticle: readRockstarParticle(rd, x)
+	case []RockstarParticle: readRockstarParticle(rd, x)
 	default:
 		panic("The buffer passed to ReadVar is not [][3]float32, " + 
 			"[][3]float64, []float32, []float64, []uint32, []uint64, or " +
@@ -164,8 +163,7 @@ func ReadVar(fileName, name string, workerID int, buf interface{}) {
 	}
 
 	worker.midBuf = rd.ReuseMidBuf()
-
-	finishWorker(worker)
+	finishWorker(workerIdx)
 }
 
 func readRockstarParticle(
@@ -485,6 +483,7 @@ func checkName(hd *compress.Header, name string) string {
 // the first worker to call it.
 func InitWorkers(nWorkers int) {
 	setupMutex.Lock()
+	defer setupMutex.Unlock()
 
 	if len(workers) != 0 {
 		if nWorkers == len(workers) {
@@ -504,6 +503,4 @@ func InitWorkers(nWorkers int) {
 		workers[i].index = i
 		mutexes[i] = &sync.Mutex{ }
 	}
-
-	setupMutex.Unlock()
 }
