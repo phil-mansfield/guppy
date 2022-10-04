@@ -2,6 +2,8 @@
 
 Guppy is a compression algorithm designed to reduce the size of N-body simulations. For a typical cosmological simulation, guppy can reduce snapshots by a factor ten to fifteen in exchange for small, tightly controled errors on the positions and velocities of particles.
 
+**guppy will soon be ready for public use. Check back in 1-2 weeks**
+
 This github repository contains a command line program which can create compressed `.gup` files. It also contains libraries for reading these files in C, Python 3, and Go in the `c/`, `python/`, and `go/` folders.
 
 Instructions for installing and using guppy can be found in the `docs/` folder:
